@@ -3,8 +3,8 @@
 [ext_resource type="Texture2D" uid="uid://cawecidytmu8j" path="res://Art/character.png" id="1_0psso"]
 [ext_resource type="Script" path="res://Characters/player.gd" id="1_v0bc0"]
 
-[sub_resource type="RectangleShape2D" id="RectangleShape2D_68g63"]
-size = Vector2(13.125, 7)
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_fckxc"]
+size = Vector2(14, 19)
 
 [sub_resource type="Animation" id="Animation_ypgsa"]
 length = 0.001
@@ -201,8 +201,8 @@ vframes = 8
 frame = 2
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-position = Vector2(-0.4375, 6.5)
-shape = SubResource("RectangleShape2D_68g63")
+position = Vector2(0, 0.5)
+shape = SubResource("RectangleShape2D_fckxc")
 
 [node name="AnimationPlayer" type="AnimationPlayer" parent="."]
 libraries = {
