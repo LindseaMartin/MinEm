@@ -1,0 +1,48 @@
+[gd_scene load_steps=5 format=3 uid="uid://b5nocl3soe00t"]
+
+[ext_resource type="Script" path="res://Levels/grid.gd" id="1_7rum1"]
+[ext_resource type="PackedScene" path="res://Levels/hidden_item.tscn" id="2_wvlt7"]
+[ext_resource type="PackedScene" uid="uid://c83lwg0j1kjs0" path="res://UI/transitioner.tscn" id="3_ivq1t"]
+[ext_resource type="Script" path="res://Levels/TransitionButton.gd" id="4_waqj7"]
+
+[node name="Grid" type="Node2D"]
+script = ExtResource("1_7rum1")
+
+[node name="GridContainer" type="GridContainer" parent="."]
+offset_right = 40.0
+offset_bottom = 40.0
+columns = 10
+
+[node name="HiddenItem" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="HiddenItem2" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="HiddenItem3" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="HiddenItem4" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="HiddenItem5" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="HiddenItem9" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="HiddenItem7" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="HiddenItem10" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="HiddenItem8" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="HiddenItem6" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="Transitioner" parent="CanvasLayer" instance=ExtResource("3_ivq1t")]
+scene_to_load = null
+
+[node name="TransitionButton" type="CheckButton" parent="CanvasLayer" node_paths=PackedStringArray("transitioner")]
+offset_right = 44.0
+offset_bottom = 24.0
+focus_mode = 0
+script = ExtResource("4_waqj7")
+transitioner = NodePath("../Transitioner")
+
+[connection signal="toggled" from="CanvasLayer/TransitionButton" to="CanvasLayer/TransitionButton" method="_on_toggled"]

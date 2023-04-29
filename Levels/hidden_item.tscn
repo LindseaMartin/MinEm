@@ -1,0 +1,64 @@
+[gd_scene load_steps=9 format=3 uid="uid://bk65arf5gyrlr"]
+
+[ext_resource type="Script" path="res://HiddenItem.gd" id="1_e6ulg"]
+[ext_resource type="Texture2D" uid="uid://d37ximgc6u2q6" path="res://Art/fossils3.PNG" id="2_141io"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_xb8pm"]
+radius = 9.3883
+height = 35.7515
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_bg441"]
+radius = 4.41632
+height = 24.737
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_ba2uw"]
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_vlmx4"]
+radius = 2.0
+height = 20.0
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_dyede"]
+radius = 3.10663
+height = 23.3128
+
+[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_h3mmh"]
+radius = 2.0
+height = 18.0
+
+[node name="HiddenItem" type="Area2D"]
+position = Vector2(142, 100)
+script = ExtResource("1_e6ulg")
+
+[node name="fossil" type="Sprite2D" parent="."]
+texture = ExtResource("2_141io")
+hframes = 4
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(12, -5)
+rotation = -2.71573
+shape = SubResource("CapsuleShape2D_xb8pm")
+one_way_collision_margin = 0.0
+
+[node name="CollisionShape2D2" type="CollisionShape2D" parent="."]
+position = Vector2(-12, 8)
+rotation = -1.82736
+shape = SubResource("CapsuleShape2D_bg441")
+
+[node name="CollisionShape2D3" type="CollisionShape2D" parent="."]
+position = Vector2(30, 2)
+shape = SubResource("CapsuleShape2D_ba2uw")
+
+[node name="CollisionShape2D4" type="CollisionShape2D" parent="."]
+position = Vector2(-30, 5)
+rotation = -0.84823
+shape = SubResource("CapsuleShape2D_vlmx4")
+
+[node name="CollisionShape2D5" type="CollisionShape2D" parent="."]
+position = Vector2(3, 18)
+rotation = 0.509636
+shape = SubResource("CapsuleShape2D_dyede")
+
+[node name="CollisionShape2D6" type="CollisionShape2D" parent="."]
+position = Vector2(14, 20)
+rotation = 0.340339
+shape = SubResource("CapsuleShape2D_h3mmh")
