@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3 uid="uid://b5nocl3soe00t"]
 
 [ext_resource type="Script" path="res://Levels/grid.gd" id="1_7rum1"]
-[ext_resource type="PackedScene" path="res://Levels/hidden_item.tscn" id="2_wvlt7"]
+[ext_resource type="PackedScene" uid="uid://bk65arf5gyrlr" path="res://Levels/hidden_item.tscn" id="2_wvlt7"]
 [ext_resource type="PackedScene" uid="uid://c83lwg0j1kjs0" path="res://UI/transitioner.tscn" id="3_ivq1t"]
 [ext_resource type="Script" path="res://Levels/TransitionButton.gd" id="4_waqj7"]
 
@@ -9,34 +9,50 @@
 script = ExtResource("1_7rum1")
 
 [node name="GridContainer" type="GridContainer" parent="."]
-offset_right = 40.0
-offset_bottom = 40.0
-columns = 10
+offset_right = 432.0
+offset_bottom = 261.0
+columns = 12
 
 [node name="HiddenItem" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(55, 44)
+
+[node name="HiddenItem11" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(377, 132)
+
+[node name="HiddenItem12" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(377, 221)
 
 [node name="HiddenItem2" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(158, 133)
 
 [node name="HiddenItem3" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(161, 44)
 
 [node name="HiddenItem4" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(268, 132)
 
 [node name="HiddenItem5" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(268, 44)
 
 [node name="HiddenItem9" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(271, 221)
 
 [node name="HiddenItem7" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(55, 132)
 
 [node name="HiddenItem10" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(55, 221)
 
 [node name="HiddenItem8" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(164, 221)
 
 [node name="HiddenItem6" parent="GridContainer" instance=ExtResource("2_wvlt7")]
+position = Vector2(377, 44)
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
+visible = false
 
 [node name="Transitioner" parent="CanvasLayer" instance=ExtResource("3_ivq1t")]
-scene_to_load = null
 
 [node name="TransitionButton" type="CheckButton" parent="CanvasLayer" node_paths=PackedStringArray("transitioner")]
 offset_right = 44.0
