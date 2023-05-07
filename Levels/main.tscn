@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3 uid="uid://cphnb1pkaqqo2"]
+
+[ext_resource type="Script" path="res://Main.gd" id="1_8f33d"]
+[ext_resource type="TileSet" uid="uid://llca3n2o4ls5" path="res://Art/darksoil.tres" id="2_nkx6i"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_8f33d")
+
+[node name="TileMap" type="TileMap" parent="."]
+tile_set = ExtResource("2_nkx6i")
+format = 2
