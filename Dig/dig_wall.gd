@@ -21,6 +21,8 @@ const ROWS := 9
 const CELL := 22
 const FAULT_COST := 6.0
 const ROCK_COST := 1.0
+const DYNAMITE_COST := 10.0
+const PROP_AMOUNT := 30.0
 
 var thickness: Array = []      # thickness[y][x] -> layers left
 var faults: Dictionary = {}    # Vector2i -> true
@@ -60,7 +62,7 @@ func _ready() -> void:
 
 
 func generate(tier: int) -> void:
-	stability_max = Game.max_stability()
+	stability_max = Game.wall_stability()
 	stability = stability_max
 	scans_left = Game.scan_charges()
 
@@ -86,7 +88,7 @@ func generate(tier: int) -> void:
 	# Buried treasure.
 	treasures = []
 	owner_of = {}
-	var count := 2 + tier + (randi() % 2)
+	var count := 2 + tier + (randi() % 2) + Game.extra_treasures()
 	for i in count:
 		_place_treasure(Game.roll_treasure(tier))
 	if treasures.is_empty():
@@ -175,6 +177,10 @@ func _footprint(c: Vector2i) -> Array:
 	var out: Array = []
 	if tool_name == "pick":
 		out.append([c, 1])
+	elif tool_name == "dynamite":
+		for dy in range(-1, 2):
+			for dx in range(-1, 2):
+				out.append([c + Vector2i(dx, dy), 9])
 	elif tool_name == "hammer":
 		for dy in range(-1, 2):
 			for dx in range(-1, 2):
@@ -194,6 +200,10 @@ func strike(c: Vector2i) -> void:
 		return
 	if tool_name == "scan":
 		_scan(c)
+		return
+	if tool_name == "dynamite" and Game.supply_count("dynamite") <= 0:
+		notice.emit("You are out of dynamite. The trader sells more.")
+		Sfx.play("deny")
 		return
 
 	var chipped := false
@@ -226,13 +236,24 @@ func strike(c: Vector2i) -> void:
 	if not chipped and damaged.is_empty():
 		return
 
-	var cost := Game.pick_cost() if tool_name == "pick" else Game.hammer_cost()
+	var cost := Game.pick_cost()
+	if tool_name == "hammer":
+		cost = Game.hammer_cost()
+		Sfx.play("thud", randf_range(0.9, 1.1))
+	elif tool_name == "dynamite":
+		cost = DYNAMITE_COST
+		Game.use_supply("dynamite")
+		Sfx.play("blast")
+	else:
+		Sfx.play("rock" if rock_hit else "chip", randf_range(0.85, 1.2))
 	if rock_hit:
 		cost += ROCK_COST
 	cost += FAULT_COST * fault_hits
 	if fault_hits > 0:
 		notice.emit("You struck a fault line! The wall shudders.")
 	_shake = 2.0 if tool_name == "pick" else 4.0
+	if tool_name == "dynamite":
+		_shake = 9.0
 	if fault_hits > 0:
 		_shake = 6.0
 
@@ -240,6 +261,7 @@ func strike(c: Vector2i) -> void:
 		var t: Dictionary = treasures[idx]
 		t["cond"] = mini(int(t["cond"]) + 1, Game.CONDITIONS.size() - 1)
 		_flash = 0.35
+		Sfx.play("damage")
 		treasure_damaged.emit(t)
 
 	for t in treasures:
@@ -252,6 +274,7 @@ func strike(c: Vector2i) -> void:
 					exposed = false
 		if exposed:
 			t["found"] = true
+			Sfx.play("found")
 			treasure_found.emit(t)
 
 	stability = maxf(stability - cost, 0.0)
@@ -266,7 +289,26 @@ func strike(c: Vector2i) -> void:
 		active = false
 		has_collapsed = true
 		_shake = 10.0
+		Sfx.play("collapse")
 		collapsed.emit()
+	changed.emit()
+	queue_redraw()
+
+
+## Uses a timber prop from the pack to win back some stability.
+func shore_up() -> void:
+	if not active:
+		return
+	if stability >= stability_max:
+		notice.emit("The wall is already as solid as it gets.")
+		return
+	if not Game.use_supply("prop"):
+		notice.emit("You have no timber props. The trader sells them.")
+		Sfx.play("deny")
+		return
+	stability = minf(stability + PROP_AMOUNT, stability_max)
+	Sfx.play("prop")
+	notice.emit("You wedge a timber prop into place. The wall steadies.")
 	changed.emit()
 	queue_redraw()
 
@@ -274,8 +316,10 @@ func strike(c: Vector2i) -> void:
 func _scan(c: Vector2i) -> void:
 	if scans_left <= 0:
 		notice.emit("The detector is out of charge for this wall.")
+		Sfx.play("deny")
 		return
 	scans_left -= 1
+	Sfx.play("beep", 1.3)
 	var hits := 0
 	for entry in _footprint(c):
 		var cell: Vector2i = entry[0]
@@ -385,6 +429,8 @@ func _draw() -> void:
 			col = Color(1.0, 0.7, 0.3, 0.9)
 		elif tool_name == "scan":
 			col = Color(0.4, 1.0, 0.6, 0.9)
+		elif tool_name == "dynamite":
+			col = Color(1.0, 0.3, 0.25, 0.95)
 		for entry in _footprint(_hover):
 			var cell: Vector2i = entry[0]
 			if _inside(cell):

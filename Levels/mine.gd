@@ -26,6 +26,7 @@ var spots: Array = []
 var candidates: Array = []   # [{"wall": Vector2i, "stand": Vector2i, "dist": int}]
 var max_dist: int = 1
 var tile_px: float = 16.0
+var _beep_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -43,8 +44,10 @@ func _ready() -> void:
 
 	_scan_map()
 	_spawn_spots()
-	hud.toast("WASD to move, E to interact.")
-	hud.toast("Follow your detector to find dig sites in the walls.")
+	Game.set_completed.connect(_on_set_completed)
+	hud.toast("WASD to move, E to interact, M to mute.")
+	hud.toast("Follow your detector - it beeps faster near a dig site.")
+	_announce_day()
 
 
 func _cell_pos(cell: Vector2i) -> Vector2:
@@ -122,7 +125,7 @@ func _spawn_spots() -> void:
 	candidates.shuffle()
 	var chosen: Array = []
 	for c in candidates:
-		if chosen.size() >= SPOT_COUNT:
+		if chosen.size() >= SPOT_COUNT + Game.extra_sites():
 			break
 		var ok := true
 		for other in chosen:
@@ -136,6 +139,7 @@ func _spawn_spots() -> void:
 		var tier := 1 + int(3.0 * float(c["dist"]) / float(max_dist + 1))
 		if randf() < 0.15:
 			tier += 1
+		tier += Game.tier_bonus()
 		var spot = DigSpotScript.new()
 		spot.tier = clampi(tier, 1, 3)
 		spot.stand_cell = c["stand"]
@@ -145,7 +149,7 @@ func _spawn_spots() -> void:
 		spots.append(spot)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if busy:
 		return
 	var ppos: Vector2 = player.position
@@ -168,6 +172,14 @@ func _process(_delta: float) -> void:
 		if Game.level("detector") >= 3 and nearest_d > 8.0:
 			dir = nearest.position - ppos
 	hud.set_detector(strength, dir)
+	# Hot/cold beeps: the closer the site, the faster and higher they get.
+	if strength > 0.0:
+		_beep_timer -= delta
+		if _beep_timer <= 0.0:
+			_beep_timer = lerpf(1.4, 0.14, strength)
+			Sfx.play("beep", 0.8 + 0.7 * strength, -18.0)
+	else:
+		_beep_timer = 0.0
 
 	# What can we interact with?
 	var target = null
@@ -202,6 +214,7 @@ func _set_busy(value: bool) -> void:
 func _open_dig(spot) -> void:
 	if Game.bag.size() >= Game.pack_capacity():
 		hud.toast("Your pack is full! Sell your finds at the trader's camp.", Color(1, 0.6, 0.5))
+		Sfx.play("deny")
 		return
 	_set_busy(true)
 	await transitioner.cover()
@@ -214,6 +227,7 @@ func _open_dig(spot) -> void:
 
 
 func _on_dig_finished(found: Array, dig, spot) -> void:
+	var clear_bonus: int = dig.bonus_cash
 	await transitioner.cover()
 	dig.queue_free()
 	hud.visible = true
@@ -226,9 +240,25 @@ func _on_dig_finished(found: Array, dig, spot) -> void:
 		hud.toast("+ " + Game.item_label(item))
 		if bonus > 0:
 			hud.toast("New discovery! Bonus $%d" % bonus, Color(1.0, 0.9, 0.4))
+	if clear_bonus > 0:
+		Game.money += clear_bonus
+		Game.changed.emit()
+		hud.toast("Wall cleared! Bonus $%d" % clear_bonus, Color(1.0, 0.9, 0.4))
 	Game.save_game()
 	await transitioner.uncover()
 	_set_busy(false)
+
+
+func _on_set_completed(set_name: String) -> void:
+	Sfx.play("fanfare")
+	hud.toast("%s set complete! All sale prices +10%% for good." % set_name, Color(0.5, 1.0, 0.7))
+
+
+func _announce_day() -> void:
+	var event: Dictionary = Game.DAY_EVENTS[Game.day_event]
+	if Game.day_event != "calm":
+		hud.toast("%s: %s" % [event["name"], event["desc"]], Color(0.7, 0.9, 1.0))
+	hud.toast("The trader pays double for %s today." % Game.TREASURES[Game.wanted]["name"], Color(1.0, 0.9, 0.4))
 
 
 # ------------------------------------------------------------------- shop
@@ -248,11 +278,10 @@ func _close_shop(shop, rest: bool) -> void:
 	if rest:
 		await transitioner.cover()
 		shop.queue_free()
-		Game.day += 1
-		Game.save_game()
-		Game.changed.emit()
+		Game.next_day()
 		_spawn_spots()
 		hud.toast("Day %d - fresh dig sites are waiting in the mine." % Game.day)
+		_announce_day()
 		await transitioner.uncover()
 	else:
 		shop.queue_free()

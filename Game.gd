@@ -58,8 +58,40 @@ const UPGRADES := {
 		"Walls have 150 stability."]},
 }
 
+## Collecting every treasure in a set permanently raises all sale prices.
+const SETS := [
+	{"name": "Relics", "ids": ["coin", "lantern"]},
+	{"name": "Ores", "ids": ["copper", "silver", "gold"]},
+	{"name": "Crystals", "ids": ["quartz", "amethyst", "emerald", "ruby", "diamond"]},
+	{"name": "Fossils", "ids": ["ammonite", "raptor", "miner", "croc", "ptero"]},
+]
+const SET_BONUS := 0.1
+
+## Each new day rolls one of these conditions for the mine.
+const DAY_EVENTS := {
+	"calm": {"name": "A quiet day", "desc": "Nothing unusual in the mine today."},
+	"tremors": {"name": "Tremors", "desc": "Walls are 20% weaker, but each hides 2 extra treasures."},
+	"rich": {"name": "Fresh cave-in", "desc": "New seams exposed: every dig site is one grade richer."},
+	"damp": {"name": "Damp stone", "desc": "The rock is soft: strikes cost 25% less stability."},
+	"collector": {"name": "Collector in camp", "desc": "Everything sells for 25% more today."},
+	"dust": {"name": "Dusty air", "desc": "Detector range is halved, but there are 3 extra dig sites."},
+}
+
+## One-use items bought from the trader and used inside a dig.
+const SUPPLIES := {
+	"prop": {"name": "Timber Prop", "cost": 40, "desc": "Shores up a wall: +30 stability."},
+	"dynamite": {"name": "Dynamite", "cost": 60, "desc": "Blasts a 3x3 hole clean through. Rough on treasure."},
+}
+const SUPPLY_MAX := 5
+const WANTED_MULT := 2.0
+
+signal set_completed(set_name)
+
 var money: int = 0
 var day: int = 1
+var day_event: String = "calm"   # key into DAY_EVENTS
+var wanted: String = "copper"    # treasure the trader pays double for today
+var supplies: Dictionary = {}    # supply id -> count carried
 var bag: Array = []            # [{"id": String, "cond": int}]
 var upgrades: Dictionary = {}  # upgrade id -> level (1..3)
 var collection: Dictionary = {}  # treasure id -> number found
@@ -77,6 +109,9 @@ func _ready() -> void:
 func reset() -> void:
 	money = 0
 	day = 1
+	day_event = "calm"
+	wanted = "copper"
+	supplies = {}
 	bag = []
 	collection = {}
 	upgrades = {}
@@ -125,16 +160,19 @@ func buy_upgrade(id: String) -> bool:
 	return true
 
 func pick_cost() -> float:
-	return [2.0, 1.5, 1.0][level("pick") - 1]
+	return float([2.0, 1.5, 1.0][level("pick") - 1]) * strike_cost_mult()
 
 func hammer_cost() -> float:
-	return [6.0, 7.0, 5.0][level("hammer") - 1]
+	return float([6.0, 7.0, 5.0][level("hammer") - 1]) * strike_cost_mult()
 
 func hammer_is_wide() -> bool:
 	return level("hammer") >= 2
 
 func detector_range_cells() -> int:
-	return [7, 11, 16][level("detector") - 1]
+	var cells: int = [7, 11, 16][level("detector") - 1]
+	if day_event == "dust":
+		cells = cells / 2
+	return cells
 
 func scan_radius() -> int:
 	return level("detector")
@@ -166,21 +204,27 @@ func add_to_bag(id: String, cond: int) -> int:
 	if not collection.has(id):
 		bonus = int(TREASURES[id]["value"]) / 2
 		money += bonus
+	var done_before: Array = []
+	for s in SETS:
+		done_before.append(set_progress(s) >= s["ids"].size())
 	collection[id] = int(collection.get(id, 0)) + 1
+	for i in SETS.size():
+		if not done_before[i] and set_progress(SETS[i]) >= SETS[i]["ids"].size():
+			set_completed.emit(SETS[i]["name"])
 	changed.emit()
 	return bonus
 
 func sell(index: int) -> void:
 	if index < 0 or index >= bag.size():
 		return
-	money += item_value(bag[index])
+	money += sell_price(bag[index])
 	bag.remove_at(index)
 	save_game()
 	changed.emit()
 
 func sell_all() -> void:
 	for item in bag:
-		money += item_value(item)
+		money += sell_price(item)
 	bag = []
 	save_game()
 	changed.emit()
@@ -188,8 +232,77 @@ func sell_all() -> void:
 func bag_value() -> int:
 	var total := 0
 	for item in bag:
-		total += item_value(item)
+		total += sell_price(item)
 	return total
+
+# ------------------------------------------------- days, sets and supplies
+
+## What the trader pays for an item right now (sets, wanted item, events).
+func sell_price(item: Dictionary) -> int:
+	var mult := 1.0 + SET_BONUS * completed_sets()
+	if item["id"] == wanted:
+		mult *= WANTED_MULT
+	if day_event == "collector":
+		mult *= 1.25
+	return int(round(item_value(item) * mult))
+
+func set_progress(s: Dictionary) -> int:
+	var n := 0
+	for id in s["ids"]:
+		if collection.has(id):
+			n += 1
+	return n
+
+func completed_sets() -> int:
+	var n := 0
+	for s in SETS:
+		if set_progress(s) >= s["ids"].size():
+			n += 1
+	return n
+
+func next_day() -> void:
+	day += 1
+	var ids: Array = DAY_EVENTS.keys()
+	day_event = "calm" if randf() < 0.25 else str(ids[randi() % ids.size()])
+	wanted = roll_treasure(1 + randi() % (2 if day < 4 else 3))
+	save_game()
+	changed.emit()
+
+func strike_cost_mult() -> float:
+	return 0.75 if day_event == "damp" else 1.0
+
+func wall_stability() -> float:
+	return max_stability() * (0.8 if day_event == "tremors" else 1.0)
+
+func extra_treasures() -> int:
+	return 2 if day_event == "tremors" else 0
+
+func tier_bonus() -> int:
+	return 1 if day_event == "rich" else 0
+
+func extra_sites() -> int:
+	return 3 if day_event == "dust" else 0
+
+func supply_count(id: String) -> int:
+	return int(supplies.get(id, 0))
+
+func buy_supply(id: String) -> bool:
+	var cost := int(SUPPLIES[id]["cost"])
+	if money < cost or supply_count(id) >= SUPPLY_MAX:
+		return false
+	money -= cost
+	supplies[id] = supply_count(id) + 1
+	save_game()
+	changed.emit()
+	return true
+
+func use_supply(id: String) -> bool:
+	if supply_count(id) <= 0:
+		return false
+	supplies[id] = supply_count(id) - 1
+	changed.emit()
+	return true
+
 
 ## Random treasure id that can appear in a dig site of the given tier.
 func roll_treasure(tier: int) -> String:
@@ -221,6 +334,7 @@ func save_game() -> void:
 		return
 	f.store_string(JSON.stringify({
 		"money": money, "day": day, "bag": bag,
+		"day_event": day_event, "wanted": wanted, "supplies": supplies,
 		"upgrades": upgrades, "collection": collection,
 	}))
 
@@ -235,6 +349,16 @@ func load_game() -> void:
 		return
 	money = int(data.get("money", 0))
 	day = int(data.get("day", 1))
+	var saved_event = str(data.get("day_event", "calm"))
+	if DAY_EVENTS.has(saved_event):
+		day_event = saved_event
+	var saved_wanted = str(data.get("wanted", "copper"))
+	if TREASURES.has(saved_wanted):
+		wanted = saved_wanted
+	var saved_sup = data.get("supplies", {})
+	if typeof(saved_sup) == TYPE_DICTIONARY:
+		for id in SUPPLIES:
+			supplies[id] = clampi(int(saved_sup.get(id, 0)), 0, SUPPLY_MAX)
 	var saved_up = data.get("upgrades", {})
 	if typeof(saved_up) == TYPE_DICTIONARY:
 		for id in UPGRADES:

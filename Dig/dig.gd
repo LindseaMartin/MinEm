@@ -11,9 +11,12 @@ const TOOL_INFO := {
 	"pick": "Pick: chips 1 layer off one cell. Slow but safe.",
 	"hammer": "Hammer: wide blow, centre goes 2 deep. Can smash finds!",
 	"scan": "Detector: click the wall to scan a patch for treasure.",
+	"dynamite": "Dynamite: blows a 3x3 hole. Damages anything buried there.",
 }
 
 var tier: int = 1
+var bonus_cash: int = 0   # reward for clearing the wall, paid on leaving
+var prop_button: Button
 var wall
 var stability_bar: ProgressBar
 var stability_label: Label
@@ -87,6 +90,22 @@ func _ready() -> void:
 		tools.add_child(b)
 		tool_buttons[id] = b
 
+	var extras := HBoxContainer.new()
+	side.add_child(extras)
+	prop_button = Button.new()
+	prop_button.focus_mode = Control.FOCUS_NONE
+	prop_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	prop_button.pressed.connect(wall.shore_up)
+	extras.add_child(prop_button)
+	var boom := Button.new()
+	boom.toggle_mode = true
+	boom.button_group = group
+	boom.focus_mode = Control.FOCUS_NONE
+	boom.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	boom.pressed.connect(_select_tool.bind("dynamite"))
+	extras.add_child(boom)
+	tool_buttons["dynamite"] = boom
+
 	info_label = Label.new()
 	info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	info_label.custom_minimum_size = Vector2(160, 34)
@@ -96,10 +115,13 @@ func _ready() -> void:
 	var found_title := Label.new()
 	found_title.text = "Claimed:"
 	side.add_child(found_title)
+	var found_scroll := ScrollContainer.new()
+	found_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	side.add_child(found_scroll)
 	found_box = VBoxContainer.new()
-	found_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	found_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	found_box.add_theme_constant_override("separation", 1)
-	side.add_child(found_box)
+	found_scroll.add_child(found_box)
 
 	leave_button = Button.new()
 	leave_button.text = "Pack up and leave"
@@ -120,6 +142,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_select_tool("hammer")
 			KEY_3:
 				_select_tool("scan")
+			KEY_4:
+				wall.shore_up()
+			KEY_5:
+				_select_tool("dynamite")
 
 
 func _select_tool(id: String) -> void:
@@ -137,6 +163,12 @@ func _refresh() -> void:
 	tool_buttons["pick"].text = "1 Pick"
 	tool_buttons["hammer"].text = "2 Hammer"
 	tool_buttons["scan"].text = "3 Scan x%d" % wall.scans_left
+	prop_button.text = "4 Prop x%d" % Game.supply_count("prop")
+	prop_button.disabled = Game.supply_count("prop") <= 0 or not wall.active
+	tool_buttons["dynamite"].text = "5 Dynamite x%d" % Game.supply_count("dynamite")
+	tool_buttons["dynamite"].disabled = Game.supply_count("dynamite") <= 0
+	if wall.tool_name == "dynamite" and Game.supply_count("dynamite") <= 0:
+		_select_tool("pick")
 
 
 func _say(text: String) -> void:
@@ -166,7 +198,16 @@ func _on_collapsed() -> void:
 
 
 func _on_cleared() -> void:
-	_say("Wall cleared - you found everything buried here!")
+	var flawless := true
+	for t in wall.treasures:
+		if int(t["cond"]) > 0:
+			flawless = false
+	bonus_cash = 20 * tier * (2 if flawless else 1)
+	if flawless:
+		_say("Flawless dig! Everything recovered in pristine condition. Bonus $%d." % bonus_cash)
+	else:
+		_say("Wall cleared - you found everything buried here! Bonus $%d." % bonus_cash)
+	Sfx.play("fanfare")
 	leave_button.text = "Collect and leave"
 
 

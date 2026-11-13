@@ -13,6 +13,7 @@ var sell_all_button: Button
 var upgrade_list: VBoxContainer
 var collection_grid: GridContainer
 var collection_label: Label
+var news_label: Label
 
 
 func _ready() -> void:
@@ -41,6 +42,12 @@ func _ready() -> void:
 	money_label = Label.new()
 	header.add_child(money_label)
 
+	news_label = Label.new()
+	news_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	news_label.custom_minimum_size = Vector2(400, 0)
+	news_label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
+	root.add_child(news_label)
+
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(tabs)
@@ -56,12 +63,12 @@ func _ready() -> void:
 	sell_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sell_scroll.add_child(sell_list)
 	sell_all_button = Button.new()
-	sell_all_button.pressed.connect(Game.sell_all)
+	sell_all_button.pressed.connect(_sell_all)
 	sell_tab.add_child(sell_all_button)
 
 	# --- Upgrades
 	var up_scroll := ScrollContainer.new()
-	up_scroll.name = "Upgrades"
+	up_scroll.name = "Gear"
 	tabs.add_child(up_scroll)
 	upgrade_list = VBoxContainer.new()
 	upgrade_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -104,6 +111,24 @@ func _unhandled_input(event: InputEvent) -> void:
 		closed.emit()
 
 
+func _sell(index: int) -> void:
+	Sfx.play("coin", randf_range(0.95, 1.1))
+	Game.sell(index)
+
+
+func _sell_all() -> void:
+	Sfx.play("coin")
+	Game.sell_all()
+
+
+func _buy_upgrade(id: String) -> void:
+	Sfx.play("buy" if Game.buy_upgrade(id) else "deny")
+
+
+func _buy_supply(id: String) -> void:
+	Sfx.play("buy" if Game.buy_supply(id) else "deny")
+
+
 func _clear(node: Node) -> void:
 	for child in node.get_children():
 		node.remove_child(child)
@@ -112,6 +137,9 @@ func _clear(node: Node) -> void:
 
 func refresh() -> void:
 	money_label.text = "$%d" % Game.money
+	var event: Dictionary = Game.DAY_EVENTS[Game.day_event]
+	news_label.text = "Day %d - %s: %s\nWanted today: %s (pays double)" % [
+		Game.day, event["name"], event["desc"], Game.TREASURES[Game.wanted]["name"]]
 
 	# Sell list
 	_clear(sell_list)
@@ -130,13 +158,16 @@ func refresh() -> void:
 		var label := Label.new()
 		label.text = Game.item_label(item)
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if item["id"] == Game.wanted:
+			label.text += "  - WANTED"
+			label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.4))
 		row.add_child(label)
 		var price := Label.new()
-		price.text = "$%d" % Game.item_value(item)
+		price.text = "$%d" % Game.sell_price(item)
 		row.add_child(price)
 		var sell := Button.new()
 		sell.text = "Sell"
-		sell.pressed.connect(Game.sell.bind(i))
+		sell.pressed.connect(_sell.bind(i))
 		row.add_child(sell)
 		sell_list.add_child(row)
 	sell_all_button.text = "Sell everything ($%d)" % Game.bag_value()
@@ -171,7 +202,34 @@ func refresh() -> void:
 		else:
 			buy.text = "Buy $%d" % cost
 			buy.disabled = Game.money < cost
-			buy.pressed.connect(Game.buy_upgrade.bind(id))
+			buy.pressed.connect(_buy_upgrade.bind(id))
+		row.add_child(buy)
+		upgrade_list.add_child(row)
+
+	# Supplies (one-use items)
+	var supplies_title := Label.new()
+	supplies_title.text = "Supplies - used up inside a dig (carry up to %d of each)" % Game.SUPPLY_MAX
+	supplies_title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
+	upgrade_list.add_child(supplies_title)
+	for id in Game.SUPPLIES:
+		var def: Dictionary = Game.SUPPLIES[id]
+		var row := HBoxContainer.new()
+		var text := VBoxContainer.new()
+		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text.add_theme_constant_override("separation", 0)
+		var name_label := Label.new()
+		name_label.text = "%s  -  carrying %d" % [def["name"], Game.supply_count(id)]
+		text.add_child(name_label)
+		var desc := Label.new()
+		desc.text = str(def["desc"])
+		desc.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
+		text.add_child(desc)
+		row.add_child(text)
+		var buy := Button.new()
+		buy.custom_minimum_size = Vector2(70, 0)
+		buy.text = "Buy $%d" % int(def["cost"])
+		buy.disabled = Game.money < int(def["cost"]) or Game.supply_count(id) >= Game.SUPPLY_MAX
+		buy.pressed.connect(_buy_supply.bind(id))
 		row.add_child(buy)
 		upgrade_list.add_child(row)
 
@@ -201,4 +259,10 @@ func refresh() -> void:
 		label.clip_text = true
 		cell.add_child(label)
 		collection_grid.add_child(cell)
-	collection_label.text = "Discovered %d of %d. First finds earn a bonus of half their value." % [found, Game.TREASURES.size()]
+	var sets_text := ""
+	for s in Game.SETS:
+		var have: int = Game.set_progress(s)
+		var total: int = s["ids"].size()
+		sets_text += "%s %d/%d%s   " % [s["name"], have, total, " (done)" if have >= total else ""]
+	collection_label.text = "Discovered %d of %d. Each completed set adds +10%% to all sale prices (now +%d%%).\n%s" % [
+		found, Game.TREASURES.size(), Game.completed_sets() * 10, sets_text]
