@@ -3,6 +3,9 @@ extends CharacterBody2D
 @export var move_speed : float = 100
 @export var starting_direction : Vector2 = Vector2(0, 1)
 
+## Set to false while a menu or the dig screen is open.
+var can_move : bool = true
+
 
 @onready var animation_tree = $AnimationTree
 @onready var state_machine = animation_tree.get("parameters/playback")
@@ -12,10 +15,12 @@ func _ready():
 
 func _physics_process(_delta):
 	
-	var input_direction = Vector2(
-		Input.get_action_strength("right") - Input.get_action_strength("left"),
-		Input.get_action_strength("down") - Input.get_action_strength("up")
-)
+	var input_direction = Vector2.ZERO
+	if can_move:
+		input_direction = Vector2(
+			Input.get_action_strength("right") - Input.get_action_strength("left"),
+			Input.get_action_strength("down") - Input.get_action_strength("up")
+		)
 
 	update_animation_parameters(input_direction)
 

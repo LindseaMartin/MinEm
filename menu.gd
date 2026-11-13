@@ -12,11 +12,11 @@ func _process(delta):
 
 #TODO: Paste string of first scene(mine level) into change_scene
 func _on_start_button_pressed():
-	get_tree().change_scene("res://Levels/Level_0.tscn")
+	get_tree().change_scene_to_file("res://Levels/level_0.tscn")
 
 
 func _on_options_button_pressed():
-	var options = load("res://Menus/Options.tscn").instance()
+	var options = load("res://Menus/Options.tscn").instantiate()
 	get_tree().current_scene.add_child(options)
 
 

@@ -1,10 +1,9 @@
-[gd_scene load_steps=8 format=3 uid="uid://byud3auqtwq0u"]
+[gd_scene load_steps=7 format=3 uid="uid://byud3auqtwq0u"]
 
 [ext_resource type="PackedScene" uid="uid://dfej7hvehihq6" path="res://Characters/player.tscn" id="1_qidgt"]
 [ext_resource type="Texture2D" uid="uid://cwwuyn2ltfu8m" path="res://Art/cave.png" id="2_rghls"]
 [ext_resource type="PackedScene" uid="uid://c83lwg0j1kjs0" path="res://UI/transitioner.tscn" id="3_4dupp"]
-[ext_resource type="PackedScene" uid="uid://b5nocl3soe00t" path="res://Levels/grid.tscn" id="4_6qw7f"]
-[ext_resource type="Script" path="res://Levels/TransitionButton.gd" id="4_e7ni0"]
+[ext_resource type="Script" path="res://Levels/mine.gd" id="4_mine"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_iyx5v"]
 texture = ExtResource("2_rghls")
@@ -466,6 +465,7 @@ physics_layer_0/collision_layer = 1
 sources/0 = SubResource("TileSetAtlasSource_iyx5v")
 
 [node name="Level0" type="Node2D"]
+script = ExtResource("4_mine")
 
 [node name="Player" parent="." instance=ExtResource("1_qidgt")]
 position = Vector2(-39, 253)
@@ -494,13 +494,4 @@ position = Vector2(-39, 253)
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
 [node name="Transitioner" parent="CanvasLayer" instance=ExtResource("3_4dupp")]
-scene_to_load = ExtResource("4_6qw7f")
 
-[node name="TransitionButton" type="CheckButton" parent="CanvasLayer" node_paths=PackedStringArray("transitioner")]
-offset_right = 44.0
-offset_bottom = 24.0
-focus_mode = 0
-script = ExtResource("4_e7ni0")
-transitioner = NodePath("../Transitioner")
-
-[connection signal="toggled" from="CanvasLayer/TransitionButton" to="CanvasLayer/TransitionButton" method="_on_toggled"]
