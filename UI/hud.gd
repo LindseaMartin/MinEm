@@ -50,7 +50,7 @@ func _make_label() -> Label:
 
 
 func _refresh() -> void:
-	stats_label.text = "$%d    Pack %d/%d    Day %d" % [Game.money, Game.bag.size(), Game.pack_capacity(), Game.day]
+	stats_label.text = "$%d    Pack %d/%d    Day %d    %s" % [Game.money, Game.bag.size(), Game.pack_capacity(), Game.day, Game.depth_name()]
 
 
 func set_prompt(text: String) -> void:

@@ -63,7 +63,9 @@ func _ready() -> void:
 	mouse_exited.connect(_on_mouse_exited)
 
 
-func generate(tier: int) -> void:
+## `depth` makes walls harder and richer; `special` is "heart" for the
+## finale wall at the bottom of the mine.
+func generate(tier: int, depth: int = 0, special: String = "") -> void:
 	stability_max = Game.wall_stability()
 	stability = stability_max
 	scans_left = Game.scan_charges()
@@ -74,12 +76,12 @@ func generate(tier: int) -> void:
 		var row: Array = []
 		for x in COLS:
 			var t := 1 + (randi() % 2)
-			if randf() < 0.1 + 0.1 * tier:
+			if randf() < 0.1 + 0.1 * tier + 0.1 * depth:
 				t += 1
 			row.append(mini(t, 3))
 		thickness.append(row)
 	# Clumps of solid rock.
-	for i in 1 + tier:
+	for i in 1 + tier + depth:
 		var c := Vector2i(randi() % COLS, randi() % ROWS)
 		var rad := 1.0 + randf() * 1.2
 		for y in ROWS:
@@ -90,21 +92,32 @@ func generate(tier: int) -> void:
 	# Buried treasure.
 	treasures = []
 	owner_of = {}
-	var count := 2 + tier + (randi() % 2) + Game.extra_treasures()
+	if special == "heart":
+		# The Heart sits in the middle, wrapped in solid rock.
+		_place_at("heart", 5, 3)
+		for y in ROWS:
+			for x in COLS:
+				if Vector2(x - 6, y - 4).length() <= 2.6:
+					thickness[y][x] = 3
+	var count := 2 + tier + (randi() % 2) + Game.extra_treasures() + depth / 2
 	for i in count:
-		_place_treasure(Game.roll_treasure(tier))
+		_place_treasure(Game.roll_treasure(tier, depth))
+	# Sometimes the next page of the old journal is tucked into the rock.
+	var page := Game.next_page_for(depth)
+	if page >= 0 and randf() < 0.35:
+		_place_treasure("page")
 	if treasures.is_empty():
 		_place_treasure("copper")
 
 	# Fault lines.
 	faults = {}
-	for i in 3 + tier * 2:
+	for i in 3 + tier * 2 + depth * 2 + (4 if special == "heart" else 0):
 		faults[Vector2i(randi() % COLS, randi() % ROWS)] = true
 
 	# Gas pockets: venting one costs a lot of stability. Never under treasure.
 	gas = {}
 	pings = {}
-	for i in tier + randi() % 2:
+	for i in tier + randi() % 2 + depth + (2 if special == "heart" else 0):
 		var g := Vector2i(randi() % COLS, randi() % ROWS)
 		if not owner_of.has(g):
 			gas[g] = true
@@ -121,6 +134,14 @@ func generate(tier: int) -> void:
 			line.append(p)
 		_cracks.append(line)
 	queue_redraw()
+
+
+func _place_at(id: String, x: int, y: int) -> void:
+	var def: Dictionary = Game.TREASURES[id]
+	for cy in range(y, y + int(def["h"])):
+		for cx in range(x, x + int(def["w"])):
+			owner_of[Vector2i(cx, cy)] = treasures.size()
+	treasures.append({"id": id, "x": x, "y": y, "w": int(def["w"]), "h": int(def["h"]), "cond": 0, "found": false})
 
 
 func _place_treasure(id: String) -> bool:

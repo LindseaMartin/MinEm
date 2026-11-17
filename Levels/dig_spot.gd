@@ -6,6 +6,8 @@ var tier: int = 1
 var stand_cell: Vector2i      # floor cell the player digs from
 var revealed: bool = false
 var show_tier: bool = false   # detector level 2+ colours the glint by richness
+var special: String = ""      # "heart" for the finale site
+var key: String = ""          # entry in Game.dug_sites once dug today
 var _time: float = 0.0
 
 
@@ -16,6 +18,14 @@ func _ready() -> void:
 	var m := CanvasItemMaterial.new()
 	m.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
 	material = m
+	if special == "heart":
+		revealed = true
+		var glow := PointLight2D.new()
+		glow.texture = Game.light_texture()
+		glow.color = Color(1.0, 0.35, 0.2)
+		glow.texture_scale = 1.1
+		glow.energy = 1.2
+		add_child(glow)
 
 
 func _process(delta: float) -> void:
@@ -32,6 +42,11 @@ func reveal() -> void:
 
 func _draw() -> void:
 	if not revealed:
+		return
+	if special == "heart":
+		var beat := absf(sin(_time * 2.6))
+		draw_circle(Vector2.ZERO, 5.0 + 2.5 * beat, Color(1.0, 0.3, 0.2, 0.35))
+		_star(Vector2.ZERO, 5.0 + 2.0 * beat, Color(1.0, 0.75, 0.5))
 		return
 	var col := Color(1, 1, 0.85)
 	if show_tier:

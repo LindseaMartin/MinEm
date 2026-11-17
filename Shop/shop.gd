@@ -16,6 +16,7 @@ var collection_label: Label
 var news_label: Label
 var result_label: Label
 var contract_list: VBoxContainer
+var journal_list: VBoxContainer
 
 
 func _ready() -> void:
@@ -109,6 +110,14 @@ func _ready() -> void:
 	collection_grid.columns = 5
 	collection_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col_scroll.add_child(collection_grid)
+
+	# --- Journal
+	var jour_scroll := ScrollContainer.new()
+	jour_scroll.name = "Journal"
+	tabs.add_child(jour_scroll)
+	journal_list = VBoxContainer.new()
+	journal_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	jour_scroll.add_child(journal_list)
 
 	var footer := HBoxContainer.new()
 	root.add_child(footer)
@@ -347,8 +356,12 @@ func refresh() -> void:
 	# Collection
 	_clear(collection_grid)
 	var found := 0
+	var listed := 0
 	for id in Game.TREASURES:
 		var def: Dictionary = Game.TREASURES[id]
+		if def.get("hidden", false):
+			continue
+		listed += 1
 		var known: bool = Game.collection.has(id)
 		if known:
 			found += 1
@@ -376,4 +389,27 @@ func refresh() -> void:
 		var total: int = s["ids"].size()
 		sets_text += "%s %d/%d%s   " % [s["name"], have, total, " (done)" if have >= total else ""]
 	collection_label.text = "Discovered %d of %d. Each completed set adds +10%% to all sale prices (now +%d%%).\n%s" % [
-		found, Game.TREASURES.size(), Game.completed_sets() * 10, sets_text]
+		found, listed, Game.completed_sets() * 10, sets_text]
+
+	# Journal
+	_clear(journal_list)
+	if Game.journal == 0:
+		var none := Label.new()
+		none.text = "No pages yet. Old journal pages are sometimes buried in the walls."
+		none.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+		journal_list.add_child(none)
+	for i in Game.journal:
+		var head := Label.new()
+		head.text = "Page %d" % (i + 1)
+		head.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
+		journal_list.add_child(head)
+		var body := Label.new()
+		body.text = Game.JOURNAL[i]
+		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		body.custom_minimum_size = Vector2(390, 0)
+		journal_list.add_child(body)
+	if Game.journal < Game.JOURNAL.size():
+		var more := Label.new()
+		more.text = "%d more page(s) lie somewhere deeper." % (Game.JOURNAL.size() - Game.journal)
+		more.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
+		journal_list.add_child(more)

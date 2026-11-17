@@ -15,6 +15,8 @@ const TOOL_INFO := {
 }
 
 var tier: int = 1
+var depth: int = 0
+var special: String = ""
 var bonus_cash: int = 0   # reward for clearing the wall, paid on leaving
 var prop_button: Button
 var wall
@@ -27,8 +29,10 @@ var message_label: Label
 var leave_button: Button
 
 
-func setup(site_tier: int) -> void:
+func setup(site_tier: int, site_depth: int = 0, site_special: String = "") -> void:
 	tier = clampi(site_tier, 1, 3)
+	depth = site_depth
+	special = site_special
 
 
 func _ready() -> void:
@@ -40,7 +44,11 @@ func _ready() -> void:
 	add_child(bg)
 
 	var title := Label.new()
-	title.text = "%s  -  chip carefully, the wall won't hold forever" % TIER_NAMES[tier - 1]
+	if special == "heart":
+		title.text = "Something warm pulses behind this rock... dig gently."
+		title.add_theme_color_override("font_color", Color(1.0, 0.55, 0.4))
+	else:
+		title.text = "%s  -  chip carefully, the wall won't hold forever" % TIER_NAMES[tier - 1]
 	title.position = Vector2(8, 8)
 	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
 	add_child(title)
@@ -48,7 +56,7 @@ func _ready() -> void:
 	wall = WallScript.new()
 	wall.position = Vector2(8, 28)
 	add_child(wall)
-	wall.generate(tier)
+	wall.generate(tier, depth, special)
 	wall.changed.connect(_refresh)
 	wall.treasure_found.connect(_on_found)
 	wall.treasure_damaged.connect(_on_damaged)
@@ -202,7 +210,7 @@ func _on_cleared() -> void:
 	for t in wall.treasures:
 		if int(t["cond"]) > 0:
 			flawless = false
-	bonus_cash = 20 * tier * (2 if flawless else 1)
+	bonus_cash = 20 * (tier + depth) * (2 if flawless else 1)
 	if flawless:
 		_say("Flawless dig! Everything recovered in pristine condition. Bonus $%d." % bonus_cash)
 	else:

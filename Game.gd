@@ -33,7 +33,33 @@ const TREASURES := {
 	"ptero": {"name": "Pterosaur", "w": 3, "h": 3, "value": 400, "tier": 3, "weight": 2, "kind": "fossil", "color": "d9b38c", "frame": 4},
 	"diamond": {"name": "Diamond", "w": 2, "h": 2, "value": 480, "tier": 3, "weight": 2, "kind": "gem", "color": "9be8f5"},
 	"geode": {"name": "Geode", "w": 1, "h": 1, "value": 25, "tier": 1, "weight": 5, "kind": "geode", "color": "8d8478"},
+	# Only found below the old mine ("depth" is the shallowest level they appear on).
+	"trilobite": {"name": "Trilobite", "w": 2, "h": 2, "value": 160, "tier": 1, "weight": 4, "kind": "trilobite", "color": "a08868", "depth": 1},
+	"idol": {"name": "Obsidian Idol", "w": 1, "h": 2, "value": 260, "tier": 1, "weight": 3, "kind": "idol", "color": "2a2433", "depth": 1},
+	"cluster": {"name": "Glow Crystal", "w": 2, "h": 2, "value": 300, "tier": 2, "weight": 4, "kind": "cluster", "color": "6fd3ff", "depth": 2},
+	"sapphire": {"name": "Sapphire", "w": 2, "h": 2, "value": 380, "tier": 2, "weight": 3, "kind": "gem", "color": "2f5bea", "depth": 2},
+	"meteorite": {"name": "Star Iron", "w": 2, "h": 2, "value": 650, "tier": 3, "weight": 3, "kind": "meteorite", "color": "3b3a40", "depth": 3},
+	# Story items: never rolled at random, never go in the pack.
+	"heart": {"name": "Heart of the Mountain", "w": 3, "h": 3, "value": 3000, "tier": 3, "weight": 0, "kind": "heart", "color": "ff5a3c", "depth": 3},
+	"page": {"name": "Journal Page", "w": 1, "h": 1, "value": 0, "tier": 1, "weight": 0, "kind": "page", "color": "e8dcc0", "hidden": true},
 }
+
+const MAX_DEPTH := 3
+const DEPTH_NAMES := ["The Old Mine", "The Old Workings", "The Crystal Caverns", "The Deep Dark"]
+
+## Pages of Edda Thorn's journal, found one at a time in mine walls.
+## PAGE_DEPTH says how deep you must be for each page to turn up.
+const PAGE_DEPTH := [0, 0, 0, 1, 1, 2, 2, 3]
+const JOURNAL := [
+	"Signed the claim today. The old-timers in town say this hill is hollow. Good - hollow hills keep their riches close to the surface.\n- E. Thorn",
+	"Struck silver in the east tunnel and the crew celebrated all night. When it's quiet I hear a low hum through the rock. Marten says it's only the wind.",
+	"Marten found steps cut into the rock behind the far pool. Too even to be natural. Someone dug here before us - long, long before.",
+	"The lower workings are older than any map. Rotten timbers, tools of a make I don't recognise. The hum is louder down here. I bought more rope.",
+	"Two of the crew quit today. They say the walls breathe. I told them it's only gas pockets. I didn't tell them the gas smells sweet.",
+	"Crystals everywhere, glowing on their own - in places you hardly need a lantern. The hum makes them ring like bells. They are all growing toward something below.",
+	"I've stopped sleeping in camp. Every crystal down here points the same way: down. Whatever the old diggers were after, it is at the very bottom.",
+	"I found it. A stone the size of a barrel, warm as a hearth, beating like a heart. I can't free it alone and the walls won't hold. I'm sealing the shaft. Whoever reads this: dig gently.",
+]
 
 ## What a geode can hold when the trader cracks it open: [treasure id, weight].
 const GEODE_TABLE := [["quartz", 35], ["amethyst", 30], ["emerald", 18], ["ruby", 12], ["diamond", 5]]
@@ -68,6 +94,11 @@ const UPGRADES := {
 		"A small oil lamp. Holds 100 oil.",
 		"Bigger tank: holds 160 oil.",
 		"Brass lantern: 220 oil and a wider glow."]},
+	"rope": {"name": "Climbing Rope", "costs": [200, 450, 900], "levels": [
+		"Only long enough for the old mine.",
+		"Reaches the Old Workings (depth 1).",
+		"Reaches the Crystal Caverns (depth 2).",
+		"Reaches the Deep Dark (depth 3)."]},
 }
 
 ## Collecting every treasure in a set permanently raises all sale prices.
@@ -76,6 +107,7 @@ const SETS := [
 	{"name": "Ores", "ids": ["copper", "silver", "gold"]},
 	{"name": "Crystals", "ids": ["quartz", "amethyst", "emerald", "ruby", "diamond"]},
 	{"name": "Fossils", "ids": ["ammonite", "raptor", "miner", "croc", "ptero"]},
+	{"name": "Deep Finds", "ids": ["trilobite", "idol", "cluster", "sapphire", "meteorite"]},
 ]
 const SET_BONUS := 0.1
 
@@ -93,7 +125,9 @@ const DAY_EVENTS := {
 const SUPPLIES := {
 	"prop": {"name": "Timber Prop", "cost": 40, "desc": "Shores up a wall: +30 stability."},
 	"dynamite": {"name": "Dynamite", "cost": 60, "desc": "Blasts a 3x3 hole clean through. Rough on treasure."},
+	"flask": {"name": "Oil Flask", "cost": 30, "desc": "Press F in the mine to top up your lantern by 50 oil."},
 }
+const FLASK_OIL := 50.0
 const SUPPLY_MAX := 5
 const WANTED_MULT := 2.0
 
@@ -110,6 +144,17 @@ var contracts: Array = []
 var bag: Array = []            # [{"id": String, "cond": int}]
 var upgrades: Dictionary = {}  # upgrade id -> level (1..3)
 var collection: Dictionary = {}  # treasure id -> number found
+var world_seed: int = 0          # fixes the layout of the deep caves
+var dug_sites: Dictionary = {}   # "depth:x:y" -> true for sites/caches used up today
+var journal: int = 0             # journal pages found so far
+var heart_found: bool = false
+
+# Not saved: where the player is during this session.
+var depth: int = 0               # 0 = the old mine with the trader's camp
+var arrive_at_shaft: bool = false  # came up from below, so start by the shaft
+var transition_in: bool = false    # open the iris when the next level loads
+var intro_shown: bool = false
+var pending_messages: Array = []   # toasts to show after the next level loads
 
 var _fossil_tex: Texture2D
 var _fossil_regions: Array = []
@@ -133,6 +178,11 @@ func reset() -> void:
 	for id in UPGRADES:
 		upgrades[id] = 1
 	oil = oil_max()
+	world_seed = randi()
+	dug_sites = {}
+	journal = 0
+	heart_found = false
+	depth = 0
 	contracts = []
 	_fill_contracts()
 
@@ -303,10 +353,49 @@ func next_day() -> void:
 	day_event = "calm" if randf() < 0.25 else str(ids[randi() % ids.size()])
 	wanted = roll_treasure(1 + randi() % (2 if day < 4 else 3))
 	oil = oil_max()
+	dug_sites = {}
 	contracts = contracts.filter(func(c): return int(c["expires"]) >= day)
 	_fill_contracts()
 	save_game()
 	changed.emit()
+
+
+# ------------------------------------------------- depths, journal, heart
+
+func max_depth() -> int:
+	return level("rope") - 1
+
+func depth_name(d: int = -1) -> String:
+	return DEPTH_NAMES[clampi(depth if d < 0 else d, 0, MAX_DEPTH)]
+
+## Index of the journal page that can turn up at depth `d`, or -1.
+func next_page_for(d: int) -> int:
+	if journal < JOURNAL.size() and PAGE_DEPTH[journal] <= d:
+		return journal
+	return -1
+
+func add_page() -> int:
+	journal = mini(journal + 1, JOURNAL.size())
+	save_game()
+	changed.emit()
+	return journal - 1
+
+## Pays out for the Heart of the Mountain. Returns the reward.
+func claim_heart(cond: int) -> int:
+	heart_found = true
+	var reward := item_value({"id": "heart", "cond": cond})
+	money += reward
+	collection["heart"] = int(collection.get("heart", 0)) + 1
+	save_game()
+	changed.emit()
+	return reward
+
+func use_flask() -> bool:
+	if oil >= oil_max() - 0.5 or not use_supply("flask"):
+		return false
+	oil = minf(oil + FLASK_OIL, oil_max())
+	changed.emit()
+	return true
 
 
 # ------------------------------------------------------------ lantern oil
@@ -365,19 +454,19 @@ func _make_contract() -> Dictionary:
 	var need := 1
 	var label := ""
 	var avg := 0.0
-	if randf() < 0.5:
-		var s: Dictionary = SETS[randi() % SETS.size()]
-		var eligible: Array = []
-		for id in s["ids"]:
-			if int(TREASURES[id]["tier"]) <= max_tier:
-				eligible.append(id)
-				avg += float(TREASURES[id]["value"])
-		avg /= maxf(eligible.size(), 1)
+	var s: Dictionary = SETS[randi() % SETS.size()]
+	var eligible: Array = []
+	for id in s["ids"]:
+		if int(TREASURES[id]["tier"]) <= max_tier and int(TREASURES[id].get("depth", 0)) <= max_depth():
+			eligible.append(id)
+			avg += float(TREASURES[id]["value"])
+	if randf() < 0.5 and not eligible.is_empty():
+		avg /= float(eligible.size())
 		ids = s["ids"].duplicate()
 		need = 2 + randi() % 2
 		label = "%d x any %s" % [need, s["name"]]
 	else:
-		var id := roll_treasure(max_tier)
+		var id := roll_treasure(max_tier, max_depth())
 		ids = [id]
 		avg = float(TREASURES[id]["value"])
 		need = 1 if avg >= 100.0 else 1 + randi() % 2
@@ -458,17 +547,21 @@ func use_supply(id: String) -> bool:
 
 
 ## Random treasure id that can appear in a dig site of the given tier.
-func roll_treasure(tier: int) -> String:
+func roll_treasure(tier: int, at_depth: int = 0) -> String:
 	var pool: Array = []
 	var total := 0.0
 	for id in TREASURES:
 		var t: Dictionary = TREASURES[id]
-		if int(t["tier"]) > tier:
+		var t_depth := int(t.get("depth", 0))
+		if int(t["tier"]) > tier or t_depth > at_depth or float(t["weight"]) <= 0.0:
 			continue
-		# Richer sites lean towards their own tier's treasure.
+		# Richer sites lean towards their own tier's treasure, and each depth
+		# towards the treasure only found there.
 		var w: float = float(t["weight"])
 		if int(t["tier"]) == tier:
 			w *= 2.0
+		if t_depth > 0 and t_depth == at_depth:
+			w *= 2.5
 		pool.append([id, w])
 		total += w
 	var roll := randf() * total
@@ -489,6 +582,8 @@ func save_game() -> void:
 		"money": money, "day": day, "bag": bag,
 		"day_event": day_event, "wanted": wanted, "supplies": supplies,
 		"oil": oil, "contracts": contracts,
+		"world_seed": world_seed, "dug_sites": dug_sites,
+		"journal": journal, "heart_found": heart_found,
 		"upgrades": upgrades, "collection": collection,
 	}))
 
@@ -547,6 +642,14 @@ func load_game() -> void:
 				"expires": int(c.get("expires", day)),
 			})
 		_fill_contracts()
+	world_seed = int(data.get("world_seed", world_seed))
+	var saved_dug = data.get("dug_sites", {})
+	if typeof(saved_dug) == TYPE_DICTIONARY:
+		dug_sites = {}
+		for key in saved_dug:
+			dug_sites[str(key)] = true
+	journal = clampi(int(data.get("journal", 0)), 0, JOURNAL.size())
+	heart_found = bool(data.get("heart_found", false))
 	changed.emit()
 
 
@@ -584,6 +687,36 @@ func draw_treasure(ci: CanvasItem, id: String, rect: Rect2, alpha: float = 1.0) 
 		"shard":
 			ci.draw_colored_polygon(_pts(r, [0.5, 0.04, 0.8, 0.25, 0.72, 0.8, 0.5, 0.96, 0.28, 0.8, 0.2, 0.25]), col.darkened(0.25))
 			ci.draw_colored_polygon(_pts(r, [0.5, 0.04, 0.5, 0.96, 0.28, 0.8, 0.2, 0.25]), col)
+		"trilobite":
+			ci.draw_colored_polygon(_pts(r, [0.5, 0.06, 0.78, 0.18, 0.88, 0.45, 0.8, 0.78, 0.5, 0.95, 0.2, 0.78, 0.12, 0.45, 0.22, 0.18]), col.darkened(0.25))
+			ci.draw_colored_polygon(_pts(r, [0.5, 0.1, 0.62, 0.2, 0.62, 0.9, 0.5, 0.94, 0.38, 0.9, 0.38, 0.2]), col)
+			for i in 6:
+				var y := 0.3 + i * 0.1
+				ci.draw_line(r.position + Vector2(0.18, y) * r.size, r.position + Vector2(0.82, y) * r.size, col.darkened(0.45), 1.0)
+		"idol":
+			ci.draw_circle(r.position + Vector2(0.5, 0.18) * r.size, r.size.x * 0.22, col)
+			ci.draw_colored_polygon(_pts(r, [0.3, 0.3, 0.7, 0.3, 0.82, 0.62, 0.7, 0.95, 0.3, 0.95, 0.18, 0.62]), col)
+			ci.draw_rect(_sub(r, 0.38, 0.15, 0.08, 0.04), Color(0.9, 0.3, 0.9, alpha))
+			ci.draw_rect(_sub(r, 0.56, 0.15, 0.08, 0.04), Color(0.9, 0.3, 0.9, alpha))
+			ci.draw_line(r.position + Vector2(0.4, 0.35) * r.size, r.position + Vector2(0.45, 0.85) * r.size, col.lightened(0.35), 1.0)
+		"cluster":
+			for shard in [[0.5, 0.05, 0.62, 0.95, 0.38, 0.95], [0.25, 0.25, 0.42, 0.95, 0.15, 0.95], [0.78, 0.2, 0.86, 0.95, 0.58, 0.95]]:
+				ci.draw_colored_polygon(_pts(r, shard), col)
+				ci.draw_colored_polygon(_pts(r, [shard[0], shard[1], shard[2], shard[3], (shard[0] + shard[2]) * 0.5, shard[3]]), col.lightened(0.45))
+		"meteorite":
+			_draw_nugget(ci, r, col)
+			for p in [Vector2(0.35, 0.4), Vector2(0.6, 0.3), Vector2(0.55, 0.65), Vector2(0.3, 0.68), Vector2(0.75, 0.52)]:
+				ci.draw_circle(r.position + p * r.size, minf(r.size.x, r.size.y) * 0.04, Color(0.85, 0.9, 1.0, alpha))
+		"heart":
+			ci.draw_colored_polygon(_pts(r, [0.5, 0.04, 0.8, 0.16, 0.96, 0.45, 0.86, 0.8, 0.5, 0.97, 0.14, 0.8, 0.04, 0.45, 0.2, 0.16]), col.darkened(0.45))
+			ci.draw_colored_polygon(_pts(r, [0.5, 0.14, 0.74, 0.25, 0.86, 0.47, 0.77, 0.74, 0.5, 0.88, 0.23, 0.74, 0.14, 0.47, 0.26, 0.25]), col)
+			ci.draw_colored_polygon(_pts(r, [0.5, 0.28, 0.64, 0.4, 0.6, 0.62, 0.5, 0.72, 0.4, 0.62, 0.36, 0.4]), Color(1.0, 0.85, 0.5, alpha))
+			ci.draw_circle(r.position + Vector2(0.42, 0.36) * r.size, r.size.x * 0.04, Color(1, 1, 0.9, alpha))
+		"page":
+			ci.draw_colored_polygon(_pts(r, [0.18, 0.1, 0.78, 0.06, 0.86, 0.88, 0.24, 0.94]), col)
+			for i in 4:
+				var y := 0.28 + i * 0.15
+				ci.draw_line(r.position + Vector2(0.3, y) * r.size, r.position + Vector2(0.72, y - 0.02) * r.size, Color(0.35, 0.28, 0.2, alpha), 1.0)
 		"geode":
 			ci.draw_colored_polygon(_pts(r, [0.2, 0.25, 0.5, 0.1, 0.8, 0.22, 0.92, 0.55, 0.75, 0.88, 0.35, 0.92, 0.1, 0.6]), col)
 			ci.draw_colored_polygon(_pts(r, [0.3, 0.3, 0.5, 0.2, 0.72, 0.32, 0.78, 0.6, 0.62, 0.78, 0.38, 0.8, 0.24, 0.58]), col.darkened(0.15))

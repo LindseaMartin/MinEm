@@ -81,7 +81,7 @@ func _ready() -> void:
 	buttons.get_child(0).grab_focus()
 
 	var help := Label.new()
-	help.text = "WASD move  -  E interact  -  1-5 tools while digging  -  M mute  -  Esc menu"
+	help.text = "WASD move  -  E interact  -  F oil flask  -  1-5 tools while digging  -  M mute  -  Esc menu"
 	help.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	help.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
