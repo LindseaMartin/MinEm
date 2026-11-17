@@ -32,7 +32,15 @@ const TREASURES := {
 	"croc": {"name": "Croc Skeleton", "w": 4, "h": 2, "value": 320, "tier": 3, "weight": 3, "kind": "fossil", "color": "d9b38c", "frame": 3},
 	"ptero": {"name": "Pterosaur", "w": 3, "h": 3, "value": 400, "tier": 3, "weight": 2, "kind": "fossil", "color": "d9b38c", "frame": 4},
 	"diamond": {"name": "Diamond", "w": 2, "h": 2, "value": 480, "tier": 3, "weight": 2, "kind": "gem", "color": "9be8f5"},
+	"geode": {"name": "Geode", "w": 1, "h": 1, "value": 25, "tier": 1, "weight": 5, "kind": "geode", "color": "8d8478"},
 }
+
+## What a geode can hold when the trader cracks it open: [treasure id, weight].
+const GEODE_TABLE := [["quartz", 35], ["amethyst", 30], ["emerald", 18], ["ruby", 12], ["diamond", 5]]
+const GEODE_CRACK_COST := 30
+
+const OIL_REFILL_COST := 25
+const CONTRACT_COUNT := 3
 
 ## "costs"[i] is the price of going from level i+1 to level i+2.
 const UPGRADES := {
@@ -56,6 +64,10 @@ const UPGRADES := {
 		"Walls have 100 stability.",
 		"Walls have 125 stability.",
 		"Walls have 150 stability."]},
+	"lantern": {"name": "Lantern", "costs": [90, 350], "levels": [
+		"A small oil lamp. Holds 100 oil.",
+		"Bigger tank: holds 160 oil.",
+		"Brass lantern: 220 oil and a wider glow."]},
 }
 
 ## Collecting every treasure in a set permanently raises all sale prices.
@@ -92,6 +104,9 @@ var day: int = 1
 var day_event: String = "calm"   # key into DAY_EVENTS
 var wanted: String = "copper"    # treasure the trader pays double for today
 var supplies: Dictionary = {}    # supply id -> count carried
+var oil: float = 100.0           # lantern oil left today
+## Trader requests: [{"label", "ids": Array, "need": int, "reward": int, "expires": int}]
+var contracts: Array = []
 var bag: Array = []            # [{"id": String, "cond": int}]
 var upgrades: Dictionary = {}  # upgrade id -> level (1..3)
 var collection: Dictionary = {}  # treasure id -> number found
@@ -117,6 +132,20 @@ func reset() -> void:
 	upgrades = {}
 	for id in UPGRADES:
 		upgrades[id] = 1
+	oil = oil_max()
+	contracts = []
+	_fill_contracts()
+
+
+func has_save() -> bool:
+	return FileAccess.file_exists(SAVE_PATH)
+
+
+## Wipes progress and starts over from day 1.
+func new_game() -> void:
+	reset()
+	save_game()
+	changed.emit()
 
 
 func _setup_input() -> void:
@@ -155,6 +184,8 @@ func buy_upgrade(id: String) -> bool:
 		return false
 	money -= cost
 	upgrades[id] = level(id) + 1
+	if id == "lantern":
+		oil = oil_max()  # a new lantern comes with a full tank
 	save_game()
 	changed.emit()
 	return true
@@ -200,6 +231,12 @@ func item_label(item: Dictionary) -> String:
 ## kind of treasure has been found before).
 func add_to_bag(id: String, cond: int) -> int:
 	bag.append({"id": id, "cond": cond})
+	return _record_find(id)
+
+
+## Logs a find in the collection; pays the first-find bonus and announces
+## any set it completes. Returns the bonus.
+func _record_find(id: String) -> int:
 	var bonus := 0
 	if not collection.has(id):
 		bonus = int(TREASURES[id]["value"]) / 2
@@ -265,8 +302,124 @@ func next_day() -> void:
 	var ids: Array = DAY_EVENTS.keys()
 	day_event = "calm" if randf() < 0.25 else str(ids[randi() % ids.size()])
 	wanted = roll_treasure(1 + randi() % (2 if day < 4 else 3))
+	oil = oil_max()
+	contracts = contracts.filter(func(c): return int(c["expires"]) >= day)
+	_fill_contracts()
 	save_game()
 	changed.emit()
+
+
+# ------------------------------------------------------------ lantern oil
+
+func oil_max() -> float:
+	return [100.0, 160.0, 220.0][level("lantern") - 1]
+
+func light_radius_mult() -> float:
+	return [1.0, 1.1, 1.35][level("lantern") - 1]
+
+func refill_oil() -> bool:
+	if money < OIL_REFILL_COST or oil >= oil_max() - 0.5:
+		return false
+	money -= OIL_REFILL_COST
+	oil = oil_max()
+	save_game()
+	changed.emit()
+	return true
+
+
+# ----------------------------------------------------------------- geodes
+
+## Pays the trader to crack the geode at `index` in the pack. Returns the
+## treasure id it held, or "" if it could not be cracked.
+func crack_geode(index: int) -> String:
+	if index < 0 or index >= bag.size() or bag[index]["id"] != "geode" or money < GEODE_CRACK_COST:
+		return ""
+	money -= GEODE_CRACK_COST
+	var total := 0
+	for entry in GEODE_TABLE:
+		total += int(entry[1])
+	var roll := randi() % total
+	var gem: String = GEODE_TABLE[0][0]
+	for entry in GEODE_TABLE:
+		roll -= int(entry[1])
+		if roll < 0:
+			gem = entry[0]
+			break
+	bag[index] = {"id": gem, "cond": bag[index]["cond"]}
+	_record_find(gem)
+	save_game()
+	changed.emit()
+	return gem
+
+
+# -------------------------------------------------------------- contracts
+
+func _fill_contracts() -> void:
+	while contracts.size() < CONTRACT_COUNT:
+		contracts.append(_make_contract())
+
+
+func _make_contract() -> Dictionary:
+	var max_tier := clampi(1 + (day - 1) / 3, 1, 3)
+	var ids: Array = []
+	var need := 1
+	var label := ""
+	var avg := 0.0
+	if randf() < 0.5:
+		var s: Dictionary = SETS[randi() % SETS.size()]
+		var eligible: Array = []
+		for id in s["ids"]:
+			if int(TREASURES[id]["tier"]) <= max_tier:
+				eligible.append(id)
+				avg += float(TREASURES[id]["value"])
+		avg /= maxf(eligible.size(), 1)
+		ids = s["ids"].duplicate()
+		need = 2 + randi() % 2
+		label = "%d x any %s" % [need, s["name"]]
+	else:
+		var id := roll_treasure(max_tier)
+		ids = [id]
+		avg = float(TREASURES[id]["value"])
+		need = 1 if avg >= 100.0 else 1 + randi() % 2
+		label = "%d x %s" % [need, TREASURES[id]["name"]]
+	return {
+		"label": label, "ids": ids, "need": need,
+		"reward": int(round(need * avg * 1.75 / 5.0)) * 5 + 20,
+		"expires": day + 2 + randi() % 3,
+	}
+
+
+## Pack indices that would be handed over for a contract (cheapest first,
+## never Ruined items).
+func contract_items(c: Dictionary) -> Array:
+	var matches: Array = []
+	for i in bag.size():
+		if bag[i]["id"] in c["ids"] and int(bag[i]["cond"]) < CONDITIONS.size() - 1:
+			matches.append(i)
+	matches.sort_custom(func(a, b): return sell_price(bag[a]) < sell_price(bag[b]))
+	return matches.slice(0, int(c["need"]))
+
+
+func contract_ready(c: Dictionary) -> bool:
+	return contract_items(c).size() >= int(c["need"])
+
+
+func fulfil_contract(index: int) -> bool:
+	if index < 0 or index >= contracts.size():
+		return false
+	var c: Dictionary = contracts[index]
+	if not contract_ready(c):
+		return false
+	var used := contract_items(c)
+	used.sort()
+	used.reverse()
+	for i in used:
+		bag.remove_at(i)
+	money += int(c["reward"])
+	contracts.remove_at(index)
+	save_game()
+	changed.emit()
+	return true
 
 func strike_cost_mult() -> float:
 	return 0.75 if day_event == "damp" else 1.0
@@ -335,6 +488,7 @@ func save_game() -> void:
 	f.store_string(JSON.stringify({
 		"money": money, "day": day, "bag": bag,
 		"day_event": day_event, "wanted": wanted, "supplies": supplies,
+		"oil": oil, "contracts": contracts,
 		"upgrades": upgrades, "collection": collection,
 	}))
 
@@ -373,6 +527,26 @@ func load_game() -> void:
 		for id in saved_col:
 			if TREASURES.has(id):
 				collection[id] = int(saved_col[id])
+	oil = clampf(float(data.get("oil", oil_max())), 0.0, oil_max())
+	var saved_con = data.get("contracts", null)
+	if typeof(saved_con) == TYPE_ARRAY:
+		contracts = []
+		for c in saved_con:
+			if typeof(c) != TYPE_DICTIONARY or typeof(c.get("ids", null)) != TYPE_ARRAY:
+				continue
+			var ids: Array = []
+			for id in c["ids"]:
+				if TREASURES.has(str(id)):
+					ids.append(str(id))
+			if ids.is_empty():
+				continue
+			contracts.append({
+				"label": str(c.get("label", "")), "ids": ids,
+				"need": maxi(int(c.get("need", 1)), 1),
+				"reward": int(c.get("reward", 0)),
+				"expires": int(c.get("expires", day)),
+			})
+		_fill_contracts()
 	changed.emit()
 
 
@@ -410,6 +584,11 @@ func draw_treasure(ci: CanvasItem, id: String, rect: Rect2, alpha: float = 1.0) 
 		"shard":
 			ci.draw_colored_polygon(_pts(r, [0.5, 0.04, 0.8, 0.25, 0.72, 0.8, 0.5, 0.96, 0.28, 0.8, 0.2, 0.25]), col.darkened(0.25))
 			ci.draw_colored_polygon(_pts(r, [0.5, 0.04, 0.5, 0.96, 0.28, 0.8, 0.2, 0.25]), col)
+		"geode":
+			ci.draw_colored_polygon(_pts(r, [0.2, 0.25, 0.5, 0.1, 0.8, 0.22, 0.92, 0.55, 0.75, 0.88, 0.35, 0.92, 0.1, 0.6]), col)
+			ci.draw_colored_polygon(_pts(r, [0.3, 0.3, 0.5, 0.2, 0.72, 0.32, 0.78, 0.6, 0.62, 0.78, 0.38, 0.8, 0.24, 0.58]), col.darkened(0.15))
+			ci.draw_polyline(_pts(r, [0.45, 0.15, 0.52, 0.42, 0.42, 0.6, 0.5, 0.9]), Color(0.12, 0.1, 0.1, alpha), 1.0)
+			ci.draw_colored_polygon(_pts(r, [0.52, 0.4, 0.6, 0.5, 0.52, 0.6, 0.44, 0.5]), Color(0.75, 0.5, 1.0, alpha))
 		"lantern":
 			ci.draw_rect(_sub(r, 0.36, 0.04, 0.28, 0.14), col.darkened(0.3), false, 1.0)
 			ci.draw_rect(_sub(r, 0.22, 0.18, 0.56, 0.12), col)
@@ -495,3 +674,22 @@ func _pts(r: Rect2, unit: Array) -> PackedVector2Array:
 
 func _sub(r: Rect2, x: float, y: float, w: float, h: float) -> Rect2:
 	return Rect2(r.position + Vector2(x, y) * r.size, Vector2(w, h) * r.size)
+
+
+var _light_tex: Texture2D
+
+## Soft round texture shared by every lantern / campfire light.
+func light_texture() -> Texture2D:
+	if _light_tex == null:
+		var g := Gradient.new()
+		g.offsets = PackedFloat32Array([0.0, 0.55, 1.0])
+		g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.45), Color(1, 1, 1, 0)])
+		var t := GradientTexture2D.new()
+		t.gradient = g
+		t.width = 128
+		t.height = 128
+		t.fill = GradientTexture2D.FILL_RADIAL
+		t.fill_from = Vector2(0.5, 0.5)
+		t.fill_to = Vector2(1.0, 0.5)
+		_light_tex = t
+	return _light_tex

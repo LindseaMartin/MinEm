@@ -10,7 +10,7 @@ const TIER_NAMES := ["Shallow seam", "Rich seam", "Ancient deposit"]
 const TOOL_INFO := {
 	"pick": "Pick: chips 1 layer off one cell. Slow but safe.",
 	"hammer": "Hammer: wide blow, centre goes 2 deep. Can smash finds!",
-	"scan": "Detector: click the wall to scan a patch for treasure.",
+	"scan": "Detector: scan a patch. Green = treasure, yellow X = gas pocket.",
 	"dynamite": "Dynamite: blows a 3x3 hole. Damages anything buried there.",
 }
 

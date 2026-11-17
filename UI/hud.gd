@@ -8,6 +8,8 @@ var toast_box: VBoxContainer
 
 var strength: float = 0.0          # detector signal 0..1
 var direction: Vector2 = Vector2.ZERO  # towards nearest dig site (level 3)
+var oil_frac: float = 1.0
+var _blink: float = 0.0
 
 
 func _ready() -> void:
@@ -62,6 +64,16 @@ func set_detector(new_strength: float, new_direction: Vector2) -> void:
 	queue_redraw()
 
 
+func set_oil(frac: float) -> void:
+	if absf(frac - oil_frac) > 0.002 or frac <= 0.0:
+		oil_frac = frac
+		queue_redraw()
+
+
+func _process(delta: float) -> void:
+	_blink += delta
+
+
 func toast(text: String, color: Color = Color(1, 1, 1)) -> void:
 	var l := _make_label()
 	l.text = text
@@ -86,6 +98,18 @@ func _draw() -> void:
 		var r := Rect2(origin + Vector2(42 + i * 6, 9 - h), Vector2(4, h))
 		draw_rect(r.grow(1.0), Color(0, 0, 0, 0.8))
 		draw_rect(r, Color(0.4, 1.0, 0.5) if i < bars else Color(0.3, 0.3, 0.3))
+	# Lantern oil gauge.
+	var oil_origin := origin + Vector2(0, 14)
+	draw_string_outline(font, oil_origin + Vector2(0, 8), "Oil", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, 3, Color(0, 0, 0))
+	draw_string(font, oil_origin + Vector2(0, 8), "Oil", HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(1, 1, 1))
+	var bar := Rect2(oil_origin + Vector2(42, 3), Vector2(52, 5))
+	draw_rect(bar.grow(1.0), Color(0, 0, 0, 0.8))
+	draw_rect(bar, Color(0.2, 0.18, 0.16))
+	var oil_col := Color(1.0, 0.8, 0.3).lerp(Color(1.0, 0.3, 0.2), clampf(1.0 - oil_frac / 0.4, 0.0, 1.0))
+	draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(oil_frac, 0.0, 1.0), bar.size.y)), oil_col)
+	if oil_frac <= 0.0 and fmod(_blink, 0.6) < 0.3:
+		draw_rect(bar, Color(1.0, 0.2, 0.2, 0.7))
+
 	if direction != Vector2.ZERO:
 		var c := origin + Vector2(82, 5)
 		var d := direction.normalized()

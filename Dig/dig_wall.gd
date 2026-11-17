@@ -23,10 +23,12 @@ const FAULT_COST := 6.0
 const ROCK_COST := 1.0
 const DYNAMITE_COST := 10.0
 const PROP_AMOUNT := 30.0
+const GAS_COST := 12.0
 
 var thickness: Array = []      # thickness[y][x] -> layers left
 var faults: Dictionary = {}    # Vector2i -> true
-var pings: Dictionary = {}     # Vector2i -> bool (scan result)
+var pings: Dictionary = {}     # Vector2i -> 0 empty, 1 treasure, 2 gas (scan result)
+var gas: Dictionary = {}       # Vector2i -> true: hidden gas pockets
 var treasures: Array = []      # [{id, x, y, w, h, cond, found}]
 var owner_of: Dictionary = {}  # Vector2i -> index into treasures
 
@@ -98,6 +100,14 @@ func generate(tier: int) -> void:
 	faults = {}
 	for i in 3 + tier * 2:
 		faults[Vector2i(randi() % COLS, randi() % ROWS)] = true
+
+	# Gas pockets: venting one costs a lot of stability. Never under treasure.
+	gas = {}
+	pings = {}
+	for i in tier + randi() % 2:
+		var g := Vector2i(randi() % COLS, randi() % ROWS)
+		if not owner_of.has(g):
+			gas[g] = true
 
 	# Cracks that spread across the wall as stability drops (visual only).
 	_cracks = []
@@ -209,6 +219,7 @@ func strike(c: Vector2i) -> void:
 	var chipped := false
 	var rock_hit := false
 	var fault_hits := 0
+	var gas_vents := 0
 	var damaged: Dictionary = {}
 	for entry in _footprint(c):
 		var cell: Vector2i = entry[0]
@@ -231,6 +242,10 @@ func strike(c: Vector2i) -> void:
 		thickness[cell.y][cell.x] = maxi(th - layers, 0)
 		if thickness[cell.y][cell.x] == 0:
 			faults.erase(cell)
+			if gas.has(cell):
+				gas.erase(cell)
+				gas_vents += 1
+				_gas_cloud(cell)
 		_burst(cell, th)
 
 	if not chipped and damaged.is_empty():
@@ -249,6 +264,10 @@ func strike(c: Vector2i) -> void:
 	if rock_hit:
 		cost += ROCK_COST
 	cost += FAULT_COST * fault_hits
+	cost += GAS_COST * gas_vents
+	if gas_vents > 0:
+		notice.emit("A pocket of gas hisses out! The wall groans.")
+		Sfx.play("hiss")
 	if fault_hits > 0:
 		notice.emit("You struck a fault line! The wall shudders.")
 	_shake = 2.0 if tool_name == "pick" else 4.0
@@ -321,15 +340,25 @@ func _scan(c: Vector2i) -> void:
 	scans_left -= 1
 	Sfx.play("beep", 1.3)
 	var hits := 0
+	var gas_hits := 0
 	for entry in _footprint(c):
 		var cell: Vector2i = entry[0]
 		if not _inside(cell):
 			continue
 		var hit: bool = owner_of.has(cell) and not treasures[owner_of[cell]]["found"]
-		pings[cell] = hit
 		if hit:
+			pings[cell] = 1
 			hits += 1
-	if hits > 0:
+		elif gas.has(cell):
+			pings[cell] = 2
+			gas_hits += 1
+		else:
+			pings[cell] = 0
+	if hits > 0 and gas_hits > 0:
+		notice.emit("Beep! Treasure here - and a gas pocket nearby (yellow).")
+	elif gas_hits > 0:
+		notice.emit("The detector crackles: a gas pocket (yellow). Avoid it!")
+	elif hits > 0:
 		notice.emit("Beep! Something is buried here.")
 	else:
 		notice.emit("Nothing but stone in that patch.")
@@ -349,6 +378,19 @@ func _burst(cell: Vector2i, layer: int) -> void:
 		})
 
 
+func _gas_cloud(cell: Vector2i) -> void:
+	var center := (Vector2(cell) + Vector2(0.5, 0.5)) * CELL
+	for i in 14:
+		_particles.append({
+			"pos": center + Vector2(randf_range(-5, 5), randf_range(-5, 5)),
+			"vel": Vector2(randf_range(-25, 25), randf_range(-35, -5)),
+			"life": randf_range(0.6, 1.1),
+			"col": Color(0.75, 0.85, 0.3, 0.6),
+			"grav": -10.0,
+			"size": 3.0,
+		})
+
+
 # ---------------------------------------------------------------- drawing
 
 func _process(delta: float) -> void:
@@ -357,7 +399,7 @@ func _process(delta: float) -> void:
 	_flash = maxf(_flash - delta, 0.0)
 	for p in _particles:
 		p["life"] -= delta
-		p["vel"] = p["vel"] + Vector2(0, 260.0 * delta)
+		p["vel"] = p["vel"] + Vector2(0, float(p.get("grav", 260.0)) * delta)
 		p["pos"] = p["pos"] + p["vel"] * delta
 	_particles = _particles.filter(func(p): return p["life"] > 0.0)
 	if animating:
@@ -410,11 +452,17 @@ func _draw() -> void:
 						r.position + Vector2(18, 20)])
 					draw_polyline(pts, Color(0.08, 0.03, 0.03, 0.9), 1.5)
 					draw_line(r.position + Vector2(9, 9), r.position + Vector2(16, 6), Color(0.08, 0.03, 0.03, 0.9), 1.0)
-			if pings.has(cell):
-				if pings[cell] and th > 0:
+				# A thin last layer over gas shows a faint yellow stain.
+				if th == 1 and gas.has(cell):
+					draw_rect(r.grow(-6.0), Color(0.8, 0.85, 0.2, 0.18))
+			if pings.has(cell) and th > 0:
+				if pings[cell] == 1:
 					draw_circle(r.get_center(), 4.0, Color(0.3, 1.0, 0.5, 0.35))
 					draw_circle(r.get_center(), 2.0, Color(0.6, 1.0, 0.7, 0.95))
-				elif not pings[cell] and th > 0:
+				elif pings[cell] == 2:
+					draw_line(r.get_center() + Vector2(-3, -3), r.get_center() + Vector2(3, 3), Color(1.0, 0.9, 0.2, 0.95), 1.5)
+					draw_line(r.get_center() + Vector2(3, -3), r.get_center() + Vector2(-3, 3), Color(1.0, 0.9, 0.2, 0.95), 1.5)
+				else:
 					draw_circle(r.get_center(), 1.0, Color(0, 0, 0, 0.45))
 
 	# Stress cracks.
@@ -438,7 +486,8 @@ func _draw() -> void:
 				draw_rect(r, col, false, 2.0 if entry[1] == 2 else 1.0)
 
 	for p in _particles:
-		draw_rect(Rect2(p["pos"], Vector2(2, 2)), p["col"])
+		var ps: float = p.get("size", 2.0)
+		draw_rect(Rect2(p["pos"], Vector2(ps, ps)), p["col"])
 
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	if _flash > 0.0:

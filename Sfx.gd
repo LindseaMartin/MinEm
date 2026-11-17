@@ -16,7 +16,7 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_players.append(p)
-	for kind in ["chip", "rock", "thud", "found", "damage", "collapse", "coin", "buy", "beep", "blast", "prop", "deny", "fanfare"]:
+	for kind in ["chip", "rock", "thud", "found", "damage", "collapse", "coin", "buy", "beep", "blast", "prop", "deny", "fanfare", "hiss"]:
 		_streams[kind] = _synth(kind)
 
 
@@ -44,7 +44,7 @@ func _synth(kind: String) -> AudioStreamWAV:
 	var lengths := {
 		"chip": 0.07, "rock": 0.09, "thud": 0.2, "found": 0.45, "damage": 0.28,
 		"collapse": 1.1, "coin": 0.22, "buy": 0.3, "beep": 0.06, "blast": 0.6,
-		"prop": 0.22, "deny": 0.16, "fanfare": 0.8,
+		"prop": 0.22, "deny": 0.16, "fanfare": 0.8, "hiss": 0.7,
 	}
 	var duration: float = lengths[kind]
 	var count := int(duration * RATE)
@@ -94,6 +94,8 @@ func _synth(kind: String) -> AudioStreamWAV:
 				var note2: float = [523.0, 659.0, 784.0, 1047.0][mini(int(u * 4.0), 3)]
 				var ft := fmod(t, duration / 4.0)
 				v = (_tone(t, note2) * 0.5 + _tone(t, note2 * 1.5) * 0.2) * exp(-ft * 5.0)
+			"hiss":
+				v = (noise - low) * 0.7 * sin(u * PI) * (1.0 - u * 0.5)
 		data.encode_s16(i * 2, int(clampf(v, -1.0, 1.0) * 30000.0))
 	var stream := AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS

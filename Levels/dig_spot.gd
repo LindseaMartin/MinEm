@@ -12,6 +12,10 @@ var _time: float = 0.0
 func _ready() -> void:
 	z_index = 6
 	_time = randf() * 6.0
+	# Glints sparkle even in the dark, outside the lantern's glow.
+	var m := CanvasItemMaterial.new()
+	m.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
+	material = m
 
 
 func _process(delta: float) -> void:

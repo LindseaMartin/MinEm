@@ -14,6 +14,14 @@ const SPOT_SPACING := 6.0      # minimum distance between dig sites, in tiles
 const SIGHT_RANGE := 56.0      # px: glints become visible this close
 const INTERACT_RANGE := 26.0   # px
 
+# Lantern oil: burns while you are away from the campfire.
+const OIL_PER_SEC := 1.0
+const OIL_PER_DIG := 12.0
+const CAMP_RADIUS := 48.0      # px: the campfire's safe glow
+const DARK_GRACE := 10.0       # seconds you can stumble in the dark
+const LIGHT_RADIUS := 110.0    # px with a full lantern
+const LIGHT_RADIUS_MIN := 30.0
+
 @onready var player = $Player
 @onready var tile_map = $TileMap
 @onready var transitioner = $CanvasLayer/Transitioner
@@ -27,6 +35,11 @@ var candidates: Array = []   # [{"wall": Vector2i, "stand": Vector2i, "dist": in
 var max_dist: int = 1
 var tile_px: float = 16.0
 var _beep_timer: float = 0.0
+var lantern: PointLight2D
+var start_pos: Vector2
+var _dark_timer: float = DARK_GRACE
+var _low_oil_warned: bool = false
+var _time: float = 0.0
 
 
 func _ready() -> void:
@@ -42,10 +55,22 @@ func _ready() -> void:
 	hud = HudScript.new()
 	ui_layer.add_child(hud)
 
+	# The mine is dark: only the lantern and the campfire light it.
+	var darkness := CanvasModulate.new()
+	darkness.color = Color(0.07, 0.06, 0.09)
+	add_child(darkness)
+	lantern = PointLight2D.new()
+	lantern.texture = Game.light_texture()
+	lantern.color = Color(1.0, 0.86, 0.62)
+	lantern.energy = 1.15
+	player.add_child(lantern)
+	start_pos = player.position
+
 	_scan_map()
 	_spawn_spots()
 	Game.set_completed.connect(_on_set_completed)
-	hud.toast("WASD to move, E to interact, M to mute.")
+	hud.toast("WASD to move, E to interact, M to mute, Esc for menu.")
+	hud.toast("Your lantern burns oil away from the campfire - watch the gauge.")
 	hud.toast("Follow your detector - it beeps faster near a dig site.")
 	_announce_day()
 
@@ -149,10 +174,22 @@ func _spawn_spots() -> void:
 		spots.append(spot)
 
 
+func _unhandled_input(event: InputEvent) -> void:
+	if not busy and event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		Game.save_game()
+		get_tree().change_scene_to_file("res://menu.tscn")
+
+
 func _process(delta: float) -> void:
+	_time += delta
+	_update_lantern()
 	if busy:
 		return
 	var ppos: Vector2 = player.position
+	_burn_oil(delta, ppos)
+	if busy:
+		return  # fainted this frame
 
 	# Detector: signal strength towards the nearest hidden site.
 	var nearest = null
@@ -202,6 +239,67 @@ func _process(delta: float) -> void:
 			_open_dig(target)
 
 
+# ---------------------------------------------------------------- lantern
+
+func _update_lantern() -> void:
+	var frac := Game.oil / Game.oil_max()
+	# Full glow until the tank is under 60%, then it shrinks.
+	var radius := lerpf(LIGHT_RADIUS_MIN, LIGHT_RADIUS * Game.light_radius_mult(), clampf(frac / 0.6, 0.0, 1.0))
+	if Game.oil <= 0.0:
+		radius = LIGHT_RADIUS_MIN * 0.6
+	var flicker := 1.0 + 0.03 * sin(_time * 9.0) + 0.02 * sin(_time * 17.0)
+	if frac < 0.15:
+		flicker += 0.12 * sin(_time * 31.0) * randf()  # sputtering
+	lantern.texture_scale = radius * flicker / 64.0
+	hud.set_oil(frac)
+
+
+func _burn_oil(delta: float, ppos: Vector2) -> void:
+	var at_camp: bool = trader != null and ppos.distance_to(trader.position) < CAMP_RADIUS
+	if at_camp:
+		_dark_timer = DARK_GRACE
+		return
+	if Game.oil > 0.0:
+		Game.oil = maxf(Game.oil - OIL_PER_SEC * delta, 0.0)
+		if Game.oil / Game.oil_max() < 0.25 and not _low_oil_warned:
+			_low_oil_warned = true
+			hud.toast("Your lantern is running low. Head back soon!", Color(1.0, 0.75, 0.4))
+		if Game.oil <= 0.0:
+			Sfx.play("hiss", 0.6, -12.0)
+			hud.toast("Your lantern goes out! Get back to the campfire!", Color(1.0, 0.5, 0.4))
+		return
+	_dark_timer -= delta
+	if _dark_timer <= 0.0:
+		_faint()
+
+
+## Out of oil for too long: wake up at camp the next morning, minus a find.
+func _faint() -> void:
+	_set_busy(true)
+	Sfx.play("collapse", 0.7)
+	await transitioner.cover(1.2)
+	var lost := ""
+	if not Game.bag.is_empty():
+		var item: Dictionary = Game.bag.pop_at(randi() % Game.bag.size())
+		lost = Game.item_label(item)
+	player.position = start_pos
+	Game.next_day()
+	_spawn_spots()
+	_reset_day_state()
+	hud.toast("You stumbled in the dark and woke up back at camp.", Color(1.0, 0.6, 0.5))
+	if lost != "":
+		hud.toast("Somewhere in the dark you dropped your %s." % lost, Color(1.0, 0.6, 0.5))
+	hud.toast("Day %d begins." % Game.day)
+	_announce_day()
+	await transitioner.uncover()
+	_set_busy(false)
+
+
+func _reset_day_state() -> void:
+	_dark_timer = DARK_GRACE
+	_low_oil_warned = false
+
+
 func _set_busy(value: bool) -> void:
 	busy = value
 	player.can_move = not value
@@ -217,6 +315,7 @@ func _open_dig(spot) -> void:
 		Sfx.play("deny")
 		return
 	_set_busy(true)
+	Game.oil = maxf(Game.oil - OIL_PER_DIG, 0.0)  # time spent digging
 	await transitioner.cover()
 	var dig = DigScript.new()
 	dig.setup(spot.tier)
@@ -280,11 +379,14 @@ func _close_shop(shop, rest: bool) -> void:
 		shop.queue_free()
 		Game.next_day()
 		_spawn_spots()
+		_reset_day_state()
 		hud.toast("Day %d - fresh dig sites are waiting in the mine." % Game.day)
 		_announce_day()
 		await transitioner.uncover()
 	else:
 		shop.queue_free()
+		if Game.oil / Game.oil_max() >= 0.25:
+			_low_oil_warned = false  # refilled or upgraded at the shop
 		# Detector upgrades change how glints are shown.
 		for s in spots:
 			s.show_tier = Game.level("detector") >= 2
