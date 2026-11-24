@@ -2,14 +2,15 @@ extends Control
 ## Title screen: continue a saved game, start over, toggle sound or quit.
 
 const IconScript := preload("res://UI/treasure_icon.gd")
+const PauseScript := preload("res://UI/pause_menu.gd")
 const MINE_SCENE := "res://Levels/level_0.tscn"
 
 var new_button: Button
-var sound_button: Button
 var _confirm_new: bool = false
 
 
 func _ready() -> void:
+	Sfx.start_ambience(0)
 	var bg := TextureRect.new()
 	bg.texture = load("res://Art/cavewall.png")
 	bg.stretch_mode = TextureRect.STRETCH_TILE
@@ -68,10 +69,10 @@ func _ready() -> void:
 	new_button.pressed.connect(_new_game)
 	buttons.add_child(new_button)
 
-	sound_button = Button.new()
-	sound_button.pressed.connect(_toggle_sound)
-	buttons.add_child(sound_button)
-	_update_sound_label()
+	var settings := Button.new()
+	settings.text = "Settings"
+	settings.pressed.connect(_open_settings)
+	buttons.add_child(settings)
 
 	var quit := Button.new()
 	quit.text = "Quit"
@@ -81,7 +82,7 @@ func _ready() -> void:
 	buttons.get_child(0).grab_focus()
 
 	var help := Label.new()
-	help.text = "WASD move  -  E interact  -  F oil flask  -  1-5 tools while digging  -  M mute  -  Esc menu"
+	help.text = "WASD move  -  E interact  -  Tab map  -  F oil flask  -  1-5 dig tools  -  M mute  -  Esc pause"
 	help.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	help.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
@@ -108,11 +109,7 @@ func _new_game() -> void:
 	get_tree().change_scene_to_file(MINE_SCENE)
 
 
-func _toggle_sound() -> void:
-	Sfx.muted = not Sfx.muted
-	_update_sound_label()
-	Sfx.play("coin")
-
-
-func _update_sound_label() -> void:
-	sound_button.text = "Sound: %s" % ("Off" if Sfx.muted else "On")
+func _open_settings() -> void:
+	var pause = PauseScript.new()
+	pause.in_game = false
+	add_child(pause)

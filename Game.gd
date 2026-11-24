@@ -99,6 +99,9 @@ const UPGRADES := {
 		"Reaches the Old Workings (depth 1).",
 		"Reaches the Crystal Caverns (depth 2).",
 		"Reaches the Deep Dark (depth 3)."]},
+	"canary": {"name": "Canary", "costs": [120], "levels": [
+		"No canary yet.",
+		"A canary in a little cage. It panics when your tool hovers near hidden gas."]},
 }
 
 ## Collecting every treasure in a set permanently raises all sale prices.
@@ -132,6 +135,27 @@ const SUPPLY_MAX := 5
 const WANTED_MULT := 2.0
 
 signal set_completed(set_name)
+signal milestone_reached(milestone_name, reward)
+
+## Lifetime goals. Each pays a one-off reward when its stat reaches the goal.
+const MILESTONES := [
+	{"id": "dig1", "name": "First Strike", "desc": "Dig your first wall.", "stat": "digs", "goal": 1, "reward": 20},
+	{"id": "dig25", "name": "Seasoned Digger", "desc": "Dig 25 walls.", "stat": "digs", "goal": 25, "reward": 150},
+	{"id": "dig100", "name": "Old Hand", "desc": "Dig 100 walls.", "stat": "digs", "goal": 100, "reward": 500},
+	{"id": "clear1", "name": "Nothing Left Behind", "desc": "Uncover everything in a wall.", "stat": "cleared", "goal": 1, "reward": 30},
+	{"id": "flaw1", "name": "Steady Hands", "desc": "Clear a wall without damaging anything.", "stat": "flawless", "goal": 1, "reward": 50},
+	{"id": "flaw10", "name": "Surgeon's Touch", "desc": "Clear 10 walls flawlessly.", "stat": "flawless", "goal": 10, "reward": 300},
+	{"id": "earn1k", "name": "Making a Living", "desc": "Earn $1,000 from sales and contracts.", "stat": "earned", "goal": 1000, "reward": 100},
+	{"id": "earn10k", "name": "Mining Magnate", "desc": "Earn $10,000 from sales and contracts.", "stat": "earned", "goal": 10000, "reward": 600},
+	{"id": "depth1", "name": "Going Down", "desc": "Reach the Old Workings.", "stat": "depth", "goal": 1, "reward": 75},
+	{"id": "depth2", "name": "Crystal Light", "desc": "Reach the Crystal Caverns.", "stat": "depth", "goal": 2, "reward": 150},
+	{"id": "depth3", "name": "Into the Dark", "desc": "Reach the Deep Dark.", "stat": "depth", "goal": 3, "reward": 300},
+	{"id": "contract5", "name": "Reliable Supplier", "desc": "Complete 5 contracts.", "stat": "contracts", "goal": 5, "reward": 150},
+	{"id": "geode5", "name": "Geode Gambler", "desc": "Have 5 geodes cracked.", "stat": "geodes", "goal": 5, "reward": 60},
+	{"id": "caches10", "name": "Scavenger", "desc": "Search 10 old crates.", "stat": "caches", "goal": 10, "reward": 80},
+	{"id": "pages", "name": "The Whole Story", "desc": "Find every journal page.", "stat": "pages", "goal": 8, "reward": 200},
+	{"id": "sets", "name": "Curator", "desc": "Complete every collection set.", "stat": "sets", "goal": 5, "reward": 1000},
+]
 
 var money: int = 0
 var day: int = 1
@@ -155,6 +179,13 @@ var arrive_at_shaft: bool = false  # came up from below, so start by the shaft
 var transition_in: bool = false    # open the iris when the next level loads
 var intro_shown: bool = false
 var pending_messages: Array = []   # toasts to show after the next level loads
+
+var stats: Dictionary = {}            # lifetime counters, see MILESTONES
+var milestones_done: Dictionary = {}  # milestone id -> true
+## This day's tally for the end-of-day summary.
+var today: Dictionary = {}
+## depth -> {Vector2i: true}: map cells the lantern has lit up.
+var explored: Dictionary = {}
 
 var _fossil_tex: Texture2D
 var _fossil_regions: Array = []
@@ -183,6 +214,10 @@ func reset() -> void:
 	journal = 0
 	heart_found = false
 	depth = 0
+	stats = {}
+	milestones_done = {}
+	explored = {}
+	_reset_today()
 	contracts = []
 	_fill_contracts()
 
@@ -298,21 +333,27 @@ func _record_find(id: String) -> int:
 	for i in SETS.size():
 		if not done_before[i] and set_progress(SETS[i]) >= SETS[i]["ids"].size():
 			set_completed.emit(SETS[i]["name"])
+	stat_max("sets", completed_sets())
 	changed.emit()
 	return bonus
 
 func sell(index: int) -> void:
 	if index < 0 or index >= bag.size():
 		return
-	money += sell_price(bag[index])
+	var price := sell_price(bag[index])
+	money += price
 	bag.remove_at(index)
+	bump("earned", price)
 	save_game()
 	changed.emit()
 
 func sell_all() -> void:
+	var total := 0
 	for item in bag:
-		money += sell_price(item)
+		total += sell_price(item)
+	money += total
 	bag = []
+	bump("earned", total)
 	save_game()
 	changed.emit()
 
@@ -354,10 +395,73 @@ func next_day() -> void:
 	wanted = roll_treasure(1 + randi() % (2 if day < 4 else 3))
 	oil = oil_max()
 	dug_sites = {}
+	_reset_today()
 	contracts = contracts.filter(func(c): return int(c["expires"]) >= day)
 	_fill_contracts()
 	save_game()
 	changed.emit()
+
+
+# ------------------------------------------- stats, milestones, today
+
+func stat(key: String) -> int:
+	return int(stats.get(key, 0))
+
+func bump(key: String, amount: int = 1) -> void:
+	stats[key] = stat(key) + amount
+	_check_milestones()
+
+## Raises a stat to `value` if it is higher (for "deepest", "pages"...).
+func stat_max(key: String, value: int) -> void:
+	if value > stat(key):
+		stats[key] = value
+		_check_milestones()
+
+func _check_milestones() -> void:
+	for m in MILESTONES:
+		if milestones_done.has(m["id"]) or stat(m["stat"]) < int(m["goal"]):
+			continue
+		milestones_done[m["id"]] = true
+		money += int(m["reward"])
+		milestone_reached.emit(m["name"], int(m["reward"]))
+		changed.emit()
+
+func _reset_today() -> void:
+	today = {"start_money": money, "digs": 0, "cleared": 0, "flawless": 0,
+		"finds": 0, "best": "", "best_value": 0}
+
+## Records a dig for the day summary and lifetime stats.
+func note_dig(was_cleared: bool, was_flawless: bool) -> void:
+	today["digs"] = int(today.get("digs", 0)) + 1
+	bump("digs")
+	if was_cleared:
+		today["cleared"] = int(today.get("cleared", 0)) + 1
+		bump("cleared")
+	if was_flawless:
+		today["flawless"] = int(today.get("flawless", 0)) + 1
+		bump("flawless")
+
+func note_find(item: Dictionary) -> void:
+	today["finds"] = int(today.get("finds", 0)) + 1
+	var value := item_value(item)
+	if value > int(today.get("best_value", 0)):
+		today["best_value"] = value
+		today["best"] = item_label(item)
+
+func explored_cells(d: int) -> Dictionary:
+	if not explored.has(d):
+		explored[d] = {}
+	return explored[d]
+
+func _explored_for_save() -> Dictionary:
+	var out: Dictionary = {}
+	for d in explored:
+		var flat: Array = []
+		for cell in explored[d]:
+			flat.append(cell.x)
+			flat.append(cell.y)
+		out[str(d)] = flat
+	return out
 
 
 # ------------------------------------------------- depths, journal, heart
@@ -376,6 +480,7 @@ func next_page_for(d: int) -> int:
 
 func add_page() -> int:
 	journal = mini(journal + 1, JOURNAL.size())
+	stat_max("pages", journal)
 	save_game()
 	changed.emit()
 	return journal - 1
@@ -436,6 +541,7 @@ func crack_geode(index: int) -> String:
 			break
 	bag[index] = {"id": gem, "cond": bag[index]["cond"]}
 	_record_find(gem)
+	bump("geodes")
 	save_game()
 	changed.emit()
 	return gem
@@ -506,6 +612,8 @@ func fulfil_contract(index: int) -> bool:
 		bag.remove_at(i)
 	money += int(c["reward"])
 	contracts.remove_at(index)
+	bump("contracts")
+	bump("earned", int(c["reward"]))
 	save_game()
 	changed.emit()
 	return true
@@ -584,6 +692,8 @@ func save_game() -> void:
 		"oil": oil, "contracts": contracts,
 		"world_seed": world_seed, "dug_sites": dug_sites,
 		"journal": journal, "heart_found": heart_found,
+		"stats": stats, "milestones_done": milestones_done, "today": today,
+		"explored": _explored_for_save(),
 		"upgrades": upgrades, "collection": collection,
 	}))
 
@@ -650,6 +760,31 @@ func load_game() -> void:
 			dug_sites[str(key)] = true
 	journal = clampi(int(data.get("journal", 0)), 0, JOURNAL.size())
 	heart_found = bool(data.get("heart_found", false))
+	var saved_stats = data.get("stats", {})
+	if typeof(saved_stats) == TYPE_DICTIONARY:
+		for key in saved_stats:
+			stats[str(key)] = int(saved_stats[key])
+	var saved_done = data.get("milestones_done", {})
+	if typeof(saved_done) == TYPE_DICTIONARY:
+		for key in saved_done:
+			milestones_done[str(key)] = true
+	var saved_today = data.get("today", {})
+	if typeof(saved_today) == TYPE_DICTIONARY and saved_today.has("start_money"):
+		for key in today:
+			if saved_today.has(key):
+				today[key] = str(saved_today[key]) if key == "best" else int(saved_today[key])
+	else:
+		today["start_money"] = money
+	var saved_map = data.get("explored", {})
+	if typeof(saved_map) == TYPE_DICTIONARY:
+		for key in saved_map:
+			var flat = saved_map[key]
+			if typeof(flat) != TYPE_ARRAY:
+				continue
+			var cells: Dictionary = {}
+			for i in range(0, flat.size() - 1, 2):
+				cells[Vector2i(int(flat[i]), int(flat[i + 1]))] = true
+			explored[int(key)] = cells
 	changed.emit()
 
 

@@ -14,6 +14,10 @@ const TraderScript := preload("res://Levels/trader.gd")
 const ShaftScript := preload("res://Levels/shaft.gd")
 const CacheScript := preload("res://Levels/cache.gd")
 const DecoScript := preload("res://Levels/deco.gd")
+const BatScript := preload("res://Levels/bat.gd")
+const PauseScript := preload("res://UI/pause_menu.gd")
+const MapScript := preload("res://UI/map_view.gd")
+const BAT_OIL := 15.0
 const MINE_SCENE := "res://Levels/level_0.tscn"
 
 const SPOT_COUNT := 8
@@ -75,6 +79,8 @@ var _dark_timer: float = DARK_GRACE
 var _low_oil_warned: bool = false
 var _time: float = 0.0
 var _block_interact_frame: int = -1
+var map_view = null
+var _explore_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -108,6 +114,9 @@ func _ready() -> void:
 	_place_features()
 	_spawn_spots()
 	Game.set_completed.connect(_on_set_completed)
+	Game.milestone_reached.connect(_on_milestone)
+	Game.stat_max("depth", depth)
+	Sfx.start_ambience(depth)
 	_welcome()
 
 	if Game.transition_in:
@@ -122,7 +131,7 @@ func _ready() -> void:
 func _welcome() -> void:
 	if depth == 0 and not Game.intro_shown:
 		Game.intro_shown = true
-		hud.toast("WASD to move, E to interact, F oil flask, M mute, Esc menu.")
+		hud.toast("WASD to move, E to interact, Tab for the map, F oil flask, Esc to pause.")
 		hud.toast("Your lantern burns oil away from the campfire - watch the gauge.")
 		_announce_day()
 	elif depth > 0:
@@ -366,6 +375,19 @@ func _place_features() -> void:
 		add_child(cache)
 		caches.append(cache)
 
+	# Bats roost in the deep levels.
+	if depth > 0:
+		var roosts: Array = []
+		for cell in _order:
+			if int(_reach[cell]) >= 12:
+				roosts.append(cell)
+		_shuffle(roosts)
+		for i in mini(2 + depth * 2, roosts.size()):
+			var bat = BatScript.new()
+			bat.mine = self
+			bat.home = _cell_pos(roosts[i])
+			add_child(bat)
+
 	# Decorations along the cave walls.
 	if depth > 0:
 		var wall_side: Array = []
@@ -456,9 +478,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
-		Game.depth = 0
-		Game.save_game()
-		get_tree().change_scene_to_file("res://menu.tscn")
+		if map_view != null:
+			_close_map()
+		else:
+			_open_pause()
+	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_TAB:
+		get_viewport().set_input_as_handled()
+		if map_view != null:
+			_close_map()
+		else:
+			_open_map()
 	elif event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_F:
 		_use_flask()
 
@@ -470,6 +499,10 @@ func _process(delta: float) -> void:
 		return
 	var ppos: Vector2 = player.position
 	_burn_oil(delta, ppos)
+	_explore_timer -= delta
+	if _explore_timer <= 0.0:
+		_explore_timer = 0.2
+		_mark_explored()
 	if busy:
 		return  # fainted this frame
 
@@ -496,7 +529,8 @@ func _process(delta: float) -> void:
 		_beep_timer -= delta
 		if _beep_timer <= 0.0:
 			_beep_timer = lerpf(1.4, 0.14, strength)
-			Sfx.play("beep", 0.8 + 0.7 * strength, -18.0)
+			if Settings.beep_volume > 0.0:
+				Sfx.play("beep", 0.8 + 0.7 * strength, -18.0 + linear_to_db(Settings.beep_volume))
 	else:
 		_beep_timer = 0.0
 
@@ -558,6 +592,7 @@ func _set_busy(value: bool) -> void:
 	busy = value
 	player.can_move = not value
 	if value:
+		_close_map()
 		hud.set_prompt("")
 	else:
 		_block_interact_frame = Engine.get_process_frames()
@@ -665,6 +700,7 @@ func _change_depth(new_depth: int, arrive_at_shaft: bool) -> void:
 
 func _open_cache(cache) -> void:
 	var loot: String = cache.open()
+	Game.bump("caches")
 	Sfx.play("coin")
 	hud.toast("You search the old crate and find %s." % loot, Color(1.0, 0.9, 0.6))
 	Game.save_game()
@@ -690,6 +726,7 @@ func _open_dig(spot) -> void:
 
 func _on_dig_finished(found: Array, dig, spot) -> void:
 	var clear_bonus: int = dig.bonus_cash
+	Game.note_dig(dig.was_cleared, dig.was_flawless)
 	await transitioner.cover()
 	dig.queue_free()
 	hud.visible = true
@@ -707,6 +744,7 @@ func _on_dig_finished(found: Array, dig, spot) -> void:
 			heart_reward = Game.claim_heart(item["cond"])
 		else:
 			var bonus: int = Game.add_to_bag(item["id"], item["cond"])
+			Game.note_find(item)
 			hud.toast("+ " + Game.item_label(item))
 			if bonus > 0:
 				hud.toast("New discovery! Bonus $%d" % bonus, Color(1.0, 0.9, 0.4))
@@ -788,8 +826,9 @@ func _close_shop(shop, rest: bool) -> void:
 		return
 	shop.set_meta("closing", true)
 	if rest:
-		await transitioner.cover()
 		shop.queue_free()
+		await _show_day_summary()
+		await transitioner.cover()
 		Game.next_day()
 		_new_day_objects()
 		hud.toast("Day %d - fresh dig sites are waiting in the mine." % Game.day)
@@ -804,3 +843,78 @@ func _close_shop(shop, rest: bool) -> void:
 			s.show_tier = Game.level("detector") >= 2
 			s.queue_redraw()
 	_set_busy(false)
+
+
+# ------------------------------------------------------- pause, map, misc
+
+func _open_pause() -> void:
+	_set_busy(true)
+	var pause = PauseScript.new()
+	pause.in_game = true
+	pause.resumed.connect(func(): _set_busy(false))
+	pause.quit_requested.connect(_quit_to_title)
+	ui_layer.add_child(pause)
+
+
+func _quit_to_title() -> void:
+	Game.depth = 0
+	Game.save_game()
+	get_tree().change_scene_to_file("res://menu.tscn")
+
+
+func _open_map() -> void:
+	if map_view != null:
+		return
+	_mark_explored()
+	map_view = MapScript.new()
+	map_view.mine = self
+	ui_layer.add_child(map_view)
+
+
+func _close_map() -> void:
+	if map_view != null:
+		map_view.queue_free()
+		map_view = null
+
+
+## Remembers every cell the lantern currently lights, for the map.
+func _mark_explored() -> void:
+	var seen: Dictionary = Game.explored_cells(depth)
+	var center: Vector2i = tile_map.local_to_map(tile_map.to_local(player.global_position))
+	var radius := int(ceil(lantern.texture_scale * 64.0 * 0.6 / tile_px))
+	for dy in range(-radius, radius + 1):
+		for dx in range(-radius, radius + 1):
+			if dx * dx + dy * dy <= radius * radius:
+				seen[center + Vector2i(dx, dy)] = true
+
+
+## A bat flew into the lantern.
+func bat_hit() -> void:
+	if Game.oil <= 0.0:
+		return
+	Game.oil = maxf(Game.oil - BAT_OIL, 0.0)
+	Sfx.play("flap", 0.8, -6.0)
+	hud.toast("A bat flaps into your lantern! (-%d oil)" % int(BAT_OIL), Color(1.0, 0.7, 0.5))
+
+
+func _on_milestone(milestone_name: String, reward: int) -> void:
+	Sfx.play("fanfare", 1.2)
+	hud.toast("Milestone: %s! +$%d" % [milestone_name, reward], Color(0.6, 1.0, 0.75))
+
+
+func _show_day_summary() -> void:
+	var t: Dictionary = Game.today
+	var start := int(t.get("start_money", Game.money))
+	var diff := Game.money - start
+	var lines := "Walls dug: %d   (cleared %d, flawless %d)\n" % [int(t.get("digs", 0)), int(t.get("cleared", 0)), int(t.get("flawless", 0))]
+	lines += "Finds: %d\n" % int(t.get("finds", 0))
+	if str(t.get("best", "")) != "":
+		lines += "Best find: %s ($%d)\n" % [str(t["best"]), int(t.get("best_value", 0))]
+	lines += "Money: $%d -> $%d  (%s$%d)\n\n" % [start, Game.money, "+" if diff >= 0 else "-", absi(diff)]
+	lines += "Tomorrow: lantern refilled, new dig sites, new conditions."
+	var pop = PopupScript.new()
+	pop.title_text = "End of day %d" % Game.day
+	pop.body_text = lines
+	pop.button_text = "Sleep"
+	ui_layer.add_child(pop)
+	await pop.closed

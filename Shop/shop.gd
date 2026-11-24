@@ -6,6 +6,27 @@ signal closed
 signal rest_requested
 
 const IconScript := preload("res://UI/treasure_icon.gd")
+const FloatScript := preload("res://UI/float_text.gd")
+const TRADER := "Mags"
+## Mags' tip of the day. Entries are [text, condition]; see _tip_allowed().
+const TIPS := [
+	["Scan before you swing. A canary's cheaper than a cave-in.", "no_canary"],
+	["Gas likes to sit where the stone looks stained yellow. Chip around it.", ""],
+	["Fault lines cost you dear. Those cracked cells? Leave 'em be if you can.", ""],
+	["Bats go for the light. Keep walking and they lose interest.", "deep"],
+	["The deeper seams pay better, but bring oil. Lots of oil.", ""],
+	["Finish a collection set and every buyer in town pays you more. For good.", ""],
+	["Old crates in the dead ends get restocked overnight. Don't ask me who does it.", ""],
+	["Heard the Crystal Caverns hold sapphires as big as your fist.", ""],
+	["Edda Thorn? Stubborn as rock. Sealed something at the bottom and never said what.", ""],
+	["A flawless wall pays double the clear bonus. Patience is money.", ""],
+	["Dynamite's quick, sure. Ask the last fella what it did to his fossils.", ""],
+	["Hold on to anything I'm asking for. The wanted list changes every morning.", ""],
+	["Lost in the dark? Tab shows a map of everywhere your lantern's been.", ""],
+	["Geodes look dull, but I'll crack one for you. Sometimes there's a diamond inside.", ""],
+	["Contracts pay well over market. Just don't let them run out on you.", ""],
+	["Every wall wobbles. Wedge a timber prop in before it's too late, not after.", ""],
+]
 
 var money_label: Label
 var sell_list: VBoxContainer
@@ -14,9 +35,11 @@ var upgrade_list: VBoxContainer
 var collection_grid: GridContainer
 var collection_label: Label
 var news_label: Label
+var tip_label: Label
 var result_label: Label
 var contract_list: VBoxContainer
 var journal_list: VBoxContainer
+var records_list: VBoxContainer
 
 
 func _ready() -> void:
@@ -38,7 +61,7 @@ func _ready() -> void:
 	var header := HBoxContainer.new()
 	root.add_child(header)
 	var title := Label.new()
-	title.text = "Trader's Camp"
+	title.text = "Trader's Camp  -  " + TRADER
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
 	header.add_child(title)
@@ -50,6 +73,13 @@ func _ready() -> void:
 	news_label.custom_minimum_size = Vector2(400, 0)
 	news_label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
 	root.add_child(news_label)
+
+	tip_label = Label.new()
+	tip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tip_label.custom_minimum_size = Vector2(400, 0)
+	tip_label.add_theme_color_override("font_color", Color(0.95, 0.8, 0.6))
+	tip_label.text = "%s: \"%s\"" % [TRADER, _tip_of_the_day()]
+	root.add_child(tip_label)
 
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -111,6 +141,15 @@ func _ready() -> void:
 	collection_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col_scroll.add_child(collection_grid)
 
+	# --- Records
+	var rec_scroll := ScrollContainer.new()
+	rec_scroll.name = "Records"
+	tabs.add_child(rec_scroll)
+	records_list = VBoxContainer.new()
+	records_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	records_list.add_theme_constant_override("separation", 0)
+	rec_scroll.add_child(records_list)
+
 	# --- Journal
 	var jour_scroll := ScrollContainer.new()
 	jour_scroll.name = "Journal"
@@ -144,13 +183,19 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _sell(index: int) -> void:
+	if index < 0 or index >= Game.bag.size():
+		return
+	var price := Game.sell_price(Game.bag[index])
 	Sfx.play("coin", randf_range(0.95, 1.1))
 	Game.sell(index)
+	_float_money("+$%d" % price)
 
 
 func _sell_all() -> void:
+	var total := Game.bag_value()
 	Sfx.play("coin")
 	Game.sell_all()
+	_float_money("+$%d" % total)
 
 
 func _buy_upgrade(id: String) -> void:
@@ -177,10 +222,38 @@ func _crack(index: int) -> void:
 
 
 func _deliver(index: int) -> void:
+	var reward := int(Game.contracts[index]["reward"]) if index < Game.contracts.size() else 0
 	if Game.fulfil_contract(index):
 		Sfx.play("fanfare")
+		_float_money("+$%d" % reward)
+		tip_label.text = "%s: \"Pleasure doing business. They'll be glad to have those.\"" % TRADER
 	else:
 		Sfx.play("deny")
+
+
+func _float_money(text: String) -> void:
+	var f = FloatScript.new()
+	f.text = text
+	f.color = Color(1.0, 0.9, 0.4)
+	f.position = money_label.global_position + Vector2(money_label.size.x * 0.5, 14)
+	add_child(f)
+
+
+func _tip_allowed(condition: String) -> bool:
+	match condition:
+		"no_canary":
+			return Game.level("canary") < 2
+		"deep":
+			return Game.max_depth() >= 1
+	return true
+
+
+func _tip_of_the_day() -> String:
+	var pool: Array = []
+	for tip in TIPS:
+		if _tip_allowed(tip[1]):
+			pool.append(tip[0])
+	return pool[absi(hash([Game.world_seed, Game.day])) % pool.size()]
 
 
 func _clear(node: Node) -> void:
@@ -390,6 +463,30 @@ func refresh() -> void:
 		sets_text += "%s %d/%d%s   " % [s["name"], have, total, " (done)" if have >= total else ""]
 	collection_label.text = "Discovered %d of %d. Each completed set adds +10%% to all sale prices (now +%d%%).\n%s" % [
 		found, listed, Game.completed_sets() * 10, sets_text]
+
+	# Records
+	_clear(records_list)
+	var done := 0
+	for m in Game.MILESTONES:
+		if Game.milestones_done.has(m["id"]):
+			done += 1
+	var rec_head := Label.new()
+	rec_head.text = "Milestones %d/%d   -   Walls dug %d   Flawless %d   Earned $%d   Deepest: %s" % [
+		done, Game.MILESTONES.size(), Game.stat("digs"), Game.stat("flawless"), Game.stat("earned"), Game.depth_name(Game.stat("depth"))]
+	rec_head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rec_head.custom_minimum_size = Vector2(390, 0)
+	rec_head.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
+	records_list.add_child(rec_head)
+	for m in Game.MILESTONES:
+		var got: bool = Game.milestones_done.has(m["id"])
+		var row := Label.new()
+		var progress := mini(Game.stat(m["stat"]), int(m["goal"]))
+		row.text = "%s %s - %s  ($%d)%s" % ["[x]" if got else "[ ]", m["name"], m["desc"], int(m["reward"]),
+			"" if got else "  %d/%d" % [progress, int(m["goal"])]]
+		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.custom_minimum_size = Vector2(390, 0)
+		row.add_theme_color_override("font_color", Color(0.6, 1.0, 0.75) if got else Color(0.75, 0.75, 0.8))
+		records_list.add_child(row)
 
 	# Journal
 	_clear(journal_list)

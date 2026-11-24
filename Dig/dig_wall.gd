@@ -353,6 +353,18 @@ func shore_up() -> void:
 	queue_redraw()
 
 
+## True if a still-hidden gas pocket is close to where the current tool
+## would hit (used by the canary).
+func gas_near(c: Vector2i) -> bool:
+	if not _inside(c):
+		return false
+	var r := 1 if tool_name == "pick" or tool_name == "scan" else 2
+	for g in gas:
+		if absi(g.x - c.x) <= r and absi(g.y - c.y) <= r:
+			return true
+	return false
+
+
 func _scan(c: Vector2i) -> void:
 	if scans_left <= 0:
 		notice.emit("The detector is out of charge for this wall.")
@@ -430,7 +442,7 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	var wall_rect := Rect2(Vector2.ZERO, Vector2(COLS * CELL, ROWS * CELL))
 	var offset := Vector2.ZERO
-	if _shake > 0.0:
+	if _shake > 0.0 and Settings.screen_shake:
 		offset = Vector2(randf_range(-1, 1), randf_range(-1, 1)) * _shake
 	draw_set_transform(offset, 0.0, Vector2.ONE)
 

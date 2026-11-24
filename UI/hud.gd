@@ -30,6 +30,7 @@ func _ready() -> void:
 	add_child(prompt_label)
 
 	toast_box = VBoxContainer.new()
+	toast_box.z_index = 100  # stay above the shop and other windows
 	toast_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	toast_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	toast_box.grow_horizontal = Control.GROW_DIRECTION_BOTH

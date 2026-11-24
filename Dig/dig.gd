@@ -6,6 +6,14 @@ signal finished(found)
 
 const WallScript := preload("res://Dig/dig_wall.gd")
 const IconScript := preload("res://UI/treasure_icon.gd")
+const CanaryScript := preload("res://UI/canary.gd")
+const FloatScript := preload("res://UI/float_text.gd")
+const PopupScript := preload("res://UI/popup.gd")
+const GUIDE := ("Click a cell to chip away one layer of stone. Tan soil is soft, dark soil is harder and grey rock costs extra.\n\n"
+	+ "Free a treasure completely to claim it. Striking something that is already exposed damages it and lowers its price.\n\n"
+	+ "Every strike weakens the wall. If stability reaches zero it collapses and you keep only what was fully uncovered.\n\n"
+	+ "Tools: 1 Pick (careful), 2 Hammer (fast but rough), 3 Scan (shows treasure and gas), 4 Timber Prop, 5 Dynamite.\n\n"
+	+ "Cracked cells are fault lines and cost a lot of stability. Gas pockets hiss out when opened.")
 const TIER_NAMES := ["Shallow seam", "Rich seam", "Ancient deposit"]
 const TOOL_INFO := {
 	"pick": "Pick: chips 1 layer off one cell. Slow but safe.",
@@ -18,6 +26,8 @@ var tier: int = 1
 var depth: int = 0
 var special: String = ""
 var bonus_cash: int = 0   # reward for clearing the wall, paid on leaving
+var was_cleared: bool = false
+var was_flawless: bool = false
 var prop_button: Button
 var wall
 var stability_bar: ProgressBar
@@ -27,6 +37,8 @@ var info_label: Label
 var found_box: VBoxContainer
 var message_label: Label
 var leave_button: Button
+var canary = null
+var _chirp_timer: float = 0.0
 
 
 func setup(site_tier: int, site_depth: int = 0, site_special: String = "") -> void:
@@ -137,8 +149,46 @@ func _ready() -> void:
 	leave_button.pressed.connect(_leave)
 	side.add_child(leave_button)
 
+	if Game.level("canary") >= 2:
+		canary = CanaryScript.new()
+		canary.position = Vector2(454, 4)
+		add_child(canary)
+
 	_select_tool("pick")
 	_refresh()
+
+	# First dig ever: explain how it works.
+	if Game.stat("digs") == 0:
+		var guide = PopupScript.new()
+		guide.title_text = "How to dig"
+		guide.body_text = GUIDE
+		guide.button_text = "Got it"
+		add_child(guide)
+
+
+func _process(delta: float) -> void:
+	if canary == null:
+		return
+	canary.nervous = wall.active and wall.gas_near(wall._hover)
+	if canary.nervous:
+		_chirp_timer -= delta
+		if _chirp_timer <= 0.0:
+			_chirp_timer = 0.7
+			Sfx.play("chirp", randf_range(0.95, 1.1), -12.0)
+	else:
+		_chirp_timer = 0.0
+
+
+func _float(at: Vector2, text: String, color: Color) -> void:
+	var f = FloatScript.new()
+	f.text = text
+	f.color = color
+	f.position = at
+	add_child(f)
+
+
+func _treasure_center(t: Dictionary) -> Vector2:
+	return wall.position + (Vector2(t["x"], t["y"]) + Vector2(t["w"], t["h"]) * 0.5) * WallScript.CELL
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -194,9 +244,11 @@ func _on_found(t: Dictionary) -> void:
 	row.add_child(label)
 	found_box.add_child(row)
 	_say("You freed a %s!" % Game.TREASURES[t["id"]]["name"])
+	_float(_treasure_center(t), "+ " + str(Game.TREASURES[t["id"]]["name"]), Color(1.0, 0.9, 0.45))
 
 
 func _on_damaged(t: Dictionary) -> void:
+	_float(_treasure_center(t), str(Game.CONDITIONS[t["cond"]]["name"]) + "!", Color(1.0, 0.4, 0.35))
 	_say("Careful! You damaged something - it is now %s." % str(Game.CONDITIONS[t["cond"]]["name"]).to_lower())
 
 
@@ -210,6 +262,8 @@ func _on_cleared() -> void:
 	for t in wall.treasures:
 		if int(t["cond"]) > 0:
 			flawless = false
+	was_cleared = true
+	was_flawless = flawless
 	bonus_cash = 20 * (tier + depth) * (2 if flawless else 1)
 	if flawless:
 		_say("Flawless dig! Everything recovered in pristine condition. Bonus $%d." % bonus_cash)
