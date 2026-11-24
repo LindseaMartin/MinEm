@@ -14,6 +14,8 @@ const TraderScript := preload("res://Levels/trader.gd")
 const ShaftScript := preload("res://Levels/shaft.gd")
 const CacheScript := preload("res://Levels/cache.gd")
 const DecoScript := preload("res://Levels/deco.gd")
+const LiftScript := preload("res://Levels/lift.gd")
+const ChoiceScript := preload("res://UI/choice_popup.gd")
 const BatScript := preload("res://Levels/bat.gd")
 const PauseScript := preload("res://UI/pause_menu.gd")
 const MapScript := preload("res://UI/map_view.gd")
@@ -61,6 +63,7 @@ var hud
 var trader
 var shaft          # way down (none at the deepest level)
 var ladder         # way up (none in the old mine)
+var lift           # the lift next to the camp (old mine only)
 var caches: Array = []
 var busy: bool = false
 var spots: Array = []
@@ -338,9 +341,19 @@ func _place_features() -> void:
 	if depth > 0:
 		ladder = ShaftScript.new()
 		ladder.up = true
+		ladder.lift = Game.lift_depth() >= depth
 		ladder.position = _cell_pos(_order[0])
 		add_child(ladder)
 		player.position = _cell_pos(_cell_near(_order[0], 2))
+	if depth == 0 and trader != null:
+		# The old lift stands a few steps from the camp.
+		var camp_cell: Vector2i = tile_map.local_to_map(tile_map.to_local(trader.global_position))
+		for cell in _order:
+			if int(_reach[cell]) >= 4 and Vector2(cell - camp_cell).length() >= 3.0:
+				lift = LiftScript.new()
+				lift.position = _cell_pos(cell)
+				add_child(lift)
+				break
 	if Game.arrive_at_shaft and shaft != null:
 		player.position = _cell_pos(_cell_near(_far_cell, maxi(far_steps - 2, 0)))
 	Game.arrive_at_shaft = false
@@ -451,18 +464,24 @@ func _spawn_spots() -> void:
 		if _rng.randf() < 0.15:
 			tier += 1
 		tier += Game.tier_bonus()
-		_add_spot(c, clampi(tier, 1, 3), "")
+		# Some sites have a trait that changes how the wall plays.
+		var site_trait := ""
+		if _rng.randf() < 0.4:
+			var keys: Array = Game.TRAITS.keys()
+			site_trait = str(keys[_rng.randi() % keys.size()])
+		_add_spot(c, clampi(tier, 1, 3), "", site_trait)
 	if heart_site != null:
 		_add_spot(heart_site, 3, "heart")
 
 
-func _add_spot(c: Dictionary, tier: int, special: String) -> void:
+func _add_spot(c: Dictionary, tier: int, special: String, site_trait: String = "") -> void:
 	var key := "%d:%d:%d" % [depth, c["wall"].x, c["wall"].y]
 	if Game.dug_sites.has(key):
 		return
 	var spot = DigSpotScript.new()
 	spot.tier = tier
 	spot.special = special
+	spot.site_trait = site_trait
 	spot.key = key
 	spot.stand_cell = c["stand"]
 	spot.position = _cell_pos(c["wall"])
@@ -545,9 +564,18 @@ func _process(delta: float) -> void:
 	if trader != null and ppos.distance_to(trader.position) < INTERACT_RANGE:
 		action = "trade"
 		prompt = "[E] Trade"
+	elif lift != null and ppos.distance_to(lift.position) < INTERACT_RANGE:
+		action = "lift"
+		if Game.lift_depth() > 0:
+			prompt = "[E] Take the lift down"
+		else:
+			prompt = "The old lift is broken. Maybe the trader can fix it."
 	elif ladder != null and ppos.distance_to(ladder.position) < INTERACT_RANGE:
 		action = "up"
-		prompt = "[E] Climb up to %s" % Game.depth_name(depth - 1)
+		if Game.lift_depth() >= depth:
+			prompt = "[E] Ride the lift up to camp"
+		else:
+			prompt = "[E] Climb up to %s" % Game.depth_name(depth - 1)
 	elif shaft != null and ppos.distance_to(shaft.position) < INTERACT_RANGE:
 		action = "down"
 		if Game.max_depth() > depth:
@@ -563,6 +591,8 @@ func _process(delta: float) -> void:
 		target = nearest
 		nearest.reveal()
 		prompt = "[E] Dig here" if nearest.special != "heart" else "[E] Dig... gently"
+		if nearest.site_trait != "":
+			prompt += "  (%s)" % Game.TRAITS[nearest.site_trait]["name"]
 	elif spots.is_empty():
 		prompt = "No dig sites left here today"
 	hud.set_prompt(prompt)
@@ -574,8 +604,13 @@ func _process(delta: float) -> void:
 	match action:
 		"trade":
 			_open_shop()
+		"lift":
+			_use_lift()
 		"up":
-			_change_depth(depth - 1, true)
+			if Game.lift_depth() >= depth:
+				_change_depth(0, false)
+			else:
+				_change_depth(depth - 1, true)
 		"down":
 			if Game.max_depth() > depth:
 				_change_depth(depth + 1, false)
@@ -717,7 +752,7 @@ func _open_dig(spot) -> void:
 	Game.oil = maxf(Game.oil - OIL_PER_DIG, 0.0)  # time spent digging
 	await transitioner.cover()
 	var dig = DigScript.new()
-	dig.setup(spot.tier, depth, spot.special)
+	dig.setup(spot.tier, depth, spot.special, spot.site_trait)
 	dig.finished.connect(_on_dig_finished.bind(dig, spot))
 	ui_layer.add_child(dig)
 	hud.visible = false
@@ -743,7 +778,7 @@ func _on_dig_finished(found: Array, dig, spot) -> void:
 		elif item["id"] == "heart":
 			heart_reward = Game.claim_heart(item["cond"])
 		else:
-			var bonus: int = Game.add_to_bag(item["id"], item["cond"])
+			var bonus: int = Game.add_to_bag(item["id"], item["cond"], item.get("shine", false))
 			Game.note_find(item)
 			hud.toast("+ " + Game.item_label(item))
 			if bonus > 0:
@@ -918,3 +953,22 @@ func _show_day_summary() -> void:
 	pop.button_text = "Sleep"
 	ui_layer.add_child(pop)
 	await pop.closed
+
+
+func _use_lift() -> void:
+	if Game.lift_depth() <= 0:
+		Sfx.play("deny")
+		hud.toast("The lift needs repairs. Mags sells a Mine Lift upgrade.", Color(1.0, 0.75, 0.4))
+		return
+	_set_busy(true)
+	var choice = ChoiceScript.new()
+	choice.title_text = "Take the lift down to..."
+	choice.cancel_value = -1
+	for d in range(1, Game.lift_depth() + 1):
+		choice.options.append([Game.depth_name(d), d])
+	ui_layer.add_child(choice)
+	var picked = await choice.chosen
+	if int(picked) <= 0:
+		_set_busy(false)
+		return
+	_change_depth(int(picked), false)

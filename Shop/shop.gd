@@ -284,6 +284,7 @@ func refresh() -> void:
 		var row := HBoxContainer.new()
 		var icon = IconScript.new()
 		icon.treasure_id = item["id"]
+		icon.shine = item.get("shine", false)
 		icon.custom_minimum_size = Vector2(18, 18)
 		row.add_child(icon)
 		var label := Label.new()
@@ -331,6 +332,8 @@ func refresh() -> void:
 			desc.text = str(def["levels"][lvl - 1])
 		else:
 			desc.text = "Next: " + str(def["levels"][lvl])
+			if Game.upgrade_locked(id):
+				desc.text += " (needs a longer rope first)"
 		desc.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
 		text.add_child(desc)
 		row.add_child(text)
@@ -341,7 +344,7 @@ func refresh() -> void:
 			buy.disabled = true
 		else:
 			buy.text = "Buy $%d" % cost
-			buy.disabled = Game.money < cost
+			buy.disabled = Game.money < cost or Game.upgrade_locked(id)
 			buy.pressed.connect(_buy_upgrade.bind(id))
 		row.add_child(buy)
 		upgrade_list.add_child(row)

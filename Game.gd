@@ -102,7 +102,26 @@ const UPGRADES := {
 	"canary": {"name": "Canary", "costs": [120], "levels": [
 		"No canary yet.",
 		"A canary in a little cage. It panics when your tool hovers near hidden gas."]},
+	"lift": {"name": "Mine Lift", "costs": [300, 600, 1000], "levels": [
+		"The old lift by the camp is broken.",
+		"Lift runs to the Old Workings and back.",
+		"Lift runs to the Crystal Caverns and back.",
+		"Lift runs all the way to the Deep Dark."]},
 }
+
+## Some dig sites have a trait that changes how the wall plays.
+const TRAITS := {
+	"gems": {"name": "Gem pocket", "desc": "Mostly gems and crystals."},
+	"bones": {"name": "Bone bed", "desc": "Mostly fossils."},
+	"unstable": {"name": "Unstable", "desc": "30% less stability, but two extra treasures."},
+	"granite": {"name": "Hard granite", "desc": "Lots of hard rock, but double the clear bonus."},
+	"brittle": {"name": "Brittle", "desc": "Strikes cost 30% less, but damage hurts twice as much."},
+}
+const TRAIT_KINDS := {"gems": ["gem", "cluster", "shard", "geode"], "bones": ["fossil", "trilobite"]}
+
+## Rare shiny versions of treasures, worth three times as much.
+const GLEAM_CHANCE := 0.04
+const GLEAM_MULT := 3.0
 
 ## Collecting every treasure in a set permanently raises all sale prices.
 const SETS := [
@@ -152,6 +171,7 @@ const MILESTONES := [
 	{"id": "depth3", "name": "Into the Dark", "desc": "Reach the Deep Dark.", "stat": "depth", "goal": 3, "reward": 300},
 	{"id": "contract5", "name": "Reliable Supplier", "desc": "Complete 5 contracts.", "stat": "contracts", "goal": 5, "reward": 150},
 	{"id": "geode5", "name": "Geode Gambler", "desc": "Have 5 geodes cracked.", "stat": "geodes", "goal": 5, "reward": 60},
+	{"id": "gleam1", "name": "Something Shiny", "desc": "Find a gleaming treasure.", "stat": "gleams", "goal": 1, "reward": 100},
 	{"id": "caches10", "name": "Scavenger", "desc": "Search 10 old crates.", "stat": "caches", "goal": 10, "reward": 80},
 	{"id": "pages", "name": "The Whole Story", "desc": "Find every journal page.", "stat": "pages", "goal": 8, "reward": 200},
 	{"id": "sets", "name": "Curator", "desc": "Complete every collection set.", "stat": "sets", "goal": 5, "reward": 1000},
@@ -263,9 +283,16 @@ func upgrade_cost(id: String) -> int:
 		return -1
 	return int(UPGRADES[id]["costs"][level(id) - 1])
 
+## The lift can't go deeper than your rope has taken you.
+func upgrade_locked(id: String) -> bool:
+	return id == "lift" and level("lift") >= level("rope")
+
+func lift_depth() -> int:
+	return level("lift") - 1
+
 func buy_upgrade(id: String) -> bool:
 	var cost := upgrade_cost(id)
-	if cost < 0 or money < cost:
+	if cost < 0 or money < cost or upgrade_locked(id):
 		return false
 	money -= cost
 	upgrades[id] = level(id) + 1
@@ -307,15 +334,22 @@ func max_stability() -> float:
 
 func item_value(item: Dictionary) -> int:
 	var base: float = float(TREASURES[item["id"]]["value"])
+	if item.get("shine", false):
+		base *= GLEAM_MULT
 	return int(round(base * float(CONDITIONS[int(item["cond"])]["mult"])))
 
 func item_label(item: Dictionary) -> String:
-	return "%s (%s)" % [TREASURES[item["id"]]["name"], CONDITIONS[int(item["cond"])]["name"]]
+	var title: String = TREASURES[item["id"]]["name"]
+	if item.get("shine", false):
+		title = "Gleaming " + title
+	return "%s (%s)" % [title, CONDITIONS[int(item["cond"])]["name"]]
 
 ## Puts a find in the backpack. Returns the first-discovery bonus (0 if this
 ## kind of treasure has been found before).
-func add_to_bag(id: String, cond: int) -> int:
-	bag.append({"id": id, "cond": cond})
+func add_to_bag(id: String, cond: int, shine: bool = false) -> int:
+	bag.append({"id": id, "cond": cond, "shine": shine})
+	if shine:
+		bump("gleams")
 	return _record_find(id)
 
 
@@ -654,6 +688,17 @@ func use_supply(id: String) -> bool:
 	return true
 
 
+## Like roll_treasure, but prefers treasure of the given kinds (for site
+## traits such as "Gem pocket").
+func roll_treasure_of(kinds: Array, tier: int, at_depth: int = 0) -> String:
+	var id := roll_treasure(tier, at_depth)
+	for attempt in 15:
+		if str(TREASURES[id]["kind"]) in kinds:
+			return id
+		id = roll_treasure(tier, at_depth)
+	return id
+
+
 ## Random treasure id that can appear in a dig site of the given tier.
 func roll_treasure(tier: int, at_depth: int = 0) -> String:
 	var pool: Array = []
@@ -726,7 +771,7 @@ func load_game() -> void:
 	if typeof(saved_bag) == TYPE_ARRAY:
 		for item in saved_bag:
 			if typeof(item) == TYPE_DICTIONARY and TREASURES.has(item.get("id", "")):
-				bag.append({"id": str(item["id"]), "cond": clampi(int(item.get("cond", 0)), 0, CONDITIONS.size() - 1)})
+				bag.append({"id": str(item["id"]), "cond": clampi(int(item.get("cond", 0)), 0, CONDITIONS.size() - 1), "shine": bool(item.get("shine", false))})
 	var saved_col = data.get("collection", {})
 	if typeof(saved_col) == TYPE_DICTIONARY:
 		for id in saved_col:
@@ -791,6 +836,17 @@ func load_game() -> void:
 # ---------------------------------------------------------------- drawing
 # Treasures are drawn with code so no extra art is needed. Fossils use the
 # skeletons in Art/fossils3.PNG (its green background is removed at runtime).
+
+## Sparkles drawn over a gleaming treasure.
+func draw_gleam(ci: CanvasItem, rect: Rect2, alpha: float = 1.0) -> void:
+	var s := minf(rect.size.x, rect.size.y)
+	for p in [Vector2(0.2, 0.22), Vector2(0.8, 0.35), Vector2(0.55, 0.82)]:
+		var c: Vector2 = rect.position + p * rect.size
+		var r := s * 0.14
+		var k := r * 0.25
+		ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r), c + Vector2(k, -k), c + Vector2(r, 0), c + Vector2(k, k),
+			c + Vector2(0, r), c + Vector2(-k, k), c + Vector2(-r, 0), c + Vector2(-k, -k)]), Color(1.0, 1.0, 0.85, alpha))
+
 
 func draw_treasure(ci: CanvasItem, id: String, rect: Rect2, alpha: float = 1.0) -> void:
 	var t: Dictionary = TREASURES[id]

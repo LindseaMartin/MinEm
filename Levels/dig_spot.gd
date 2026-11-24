@@ -8,6 +8,7 @@ var revealed: bool = false
 var show_tier: bool = false   # detector level 2+ colours the glint by richness
 var special: String = ""      # "heart" for the finale site
 var key: String = ""          # entry in Game.dug_sites once dug today
+var site_trait: String = ""   # key of Game.TRAITS, or ""
 var _time: float = 0.0
 
 

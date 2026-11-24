@@ -3,6 +3,7 @@ extends Node2D
 ## ladder climbing back up towards a faint light from above.
 
 var up: bool = false
+var lift: bool = false   # this way up is the lift back to camp
 var _time: float = 0.0
 
 
@@ -34,7 +35,7 @@ func _draw() -> void:
 		for i in 5:
 			var y := 6.0 - i * 4.0
 			draw_line(Vector2(-4, y), Vector2(4, y), wood.lightened(0.15), 1.0)
-		draw_string(ThemeDB.fallback_font, Vector2(-10, -15), "UP", HORIZONTAL_ALIGNMENT_CENTER, 20, 6,
+		draw_string(ThemeDB.fallback_font, Vector2(-12, -15), "LIFT" if lift else "UP", HORIZONTAL_ALIGNMENT_CENTER, 24, 6,
 			Color(0.85, 0.9, 1.0, 0.6 + 0.3 * sin(_time * 3.0)))
 	else:
 		draw_circle(Vector2.ZERO, 9.0, Color(0.25, 0.18, 0.12))

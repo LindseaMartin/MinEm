@@ -3,6 +3,7 @@ extends Control
 
 var treasure_id: String = ""
 var known: bool = true
+var shine: bool = false   # gleaming variant: draw sparkles on top
 
 
 func _ready() -> void:
@@ -18,3 +19,5 @@ func _draw() -> void:
 	var cell := minf(size.x / float(def["w"]), size.y / float(def["h"]))
 	var sz := Vector2(float(def["w"]), float(def["h"])) * cell
 	Game.draw_treasure(self, treasure_id, Rect2((size - sz) * 0.5, sz))
+	if shine:
+		Game.draw_gleam(self, Rect2((size - sz) * 0.5, sz))

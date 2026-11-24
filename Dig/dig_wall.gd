@@ -24,6 +24,8 @@ const ROCK_COST := 1.0
 const DYNAMITE_COST := 10.0
 const PROP_AMOUNT := 30.0
 const GAS_COST := 12.0
+const FOCUS_MAX := 5
+const FOCUS_STEP := 0.1   # 10% cheaper per level of focus
 
 var thickness: Array = []      # thickness[y][x] -> layers left
 var faults: Dictionary = {}    # Vector2i -> true
@@ -38,6 +40,10 @@ var scans_left: int = 0
 var tool_name: String = "pick"
 var active: bool = true
 var has_collapsed: bool = false
+var wall_trait: String = ""
+## Steady hands: careful pick strikes in a row (no damage, faults or gas)
+## make each strike cheaper, up to FOCUS_MAX.
+var focus: int = 0
 
 var _hover := Vector2i(-1, -1)
 var _shake: float = 0.0
@@ -64,9 +70,14 @@ func _ready() -> void:
 
 
 ## `depth` makes walls harder and richer; `special` is "heart" for the
-## finale wall at the bottom of the mine.
-func generate(tier: int, depth: int = 0, special: String = "") -> void:
+## finale wall at the bottom of the mine; `site_trait` is a key of
+## Game.TRAITS (or "") that changes how this wall plays.
+func generate(tier: int, depth: int = 0, special: String = "", site_trait: String = "") -> void:
+	wall_trait = site_trait
+	focus = 0
 	stability_max = Game.wall_stability()
+	if wall_trait == "unstable":
+		stability_max *= 0.7
 	stability = stability_max
 	scans_left = Game.scan_charges()
 
@@ -76,7 +87,7 @@ func generate(tier: int, depth: int = 0, special: String = "") -> void:
 		var row: Array = []
 		for x in COLS:
 			var t := 1 + (randi() % 2)
-			if randf() < 0.1 + 0.1 * tier + 0.1 * depth:
+			if randf() < 0.1 + 0.1 * tier + 0.1 * depth + (0.3 if site_trait == "granite" else 0.0):
 				t += 1
 			row.append(mini(t, 3))
 		thickness.append(row)
@@ -100,8 +111,17 @@ func generate(tier: int, depth: int = 0, special: String = "") -> void:
 				if Vector2(x - 6, y - 4).length() <= 2.6:
 					thickness[y][x] = 3
 	var count := 2 + tier + (randi() % 2) + Game.extra_treasures() + depth / 2
+	if wall_trait == "unstable":
+		count += 2
 	for i in count:
-		_place_treasure(Game.roll_treasure(tier, depth))
+		if Game.TRAIT_KINDS.has(wall_trait) and randf() < 0.8:
+			_place_treasure(Game.roll_treasure_of(Game.TRAIT_KINDS[wall_trait], tier, depth))
+		else:
+			_place_treasure(Game.roll_treasure(tier, depth))
+	# A rare few treasures gleam: worth triple.
+	for t in treasures:
+		if t["id"] != "heart" and t["id"] != "page" and randf() < Game.GLEAM_CHANCE:
+			t["shine"] = true
 	# Sometimes the next page of the old journal is tucked into the rock.
 	var page := Game.next_page_for(depth)
 	if page >= 0 and randf() < 0.35:
@@ -170,7 +190,7 @@ func found_items() -> Array:
 	var out: Array = []
 	for t in treasures:
 		if t["found"]:
-			out.append({"id": t["id"], "cond": t["cond"]})
+			out.append({"id": t["id"], "cond": t["cond"], "shine": t.get("shine", false)})
 	return out
 
 
@@ -272,7 +292,7 @@ func strike(c: Vector2i) -> void:
 	if not chipped and damaged.is_empty():
 		return
 
-	var cost := Game.pick_cost()
+	var cost := Game.pick_cost() * (1.0 - FOCUS_STEP * focus)
 	if tool_name == "hammer":
 		cost = Game.hammer_cost()
 		Sfx.play("thud", randf_range(0.9, 1.1))
@@ -281,7 +301,9 @@ func strike(c: Vector2i) -> void:
 		Game.use_supply("dynamite")
 		Sfx.play("blast")
 	else:
-		Sfx.play("rock" if rock_hit else "chip", randf_range(0.85, 1.2))
+		Sfx.play("rock" if rock_hit else "chip", randf_range(0.85, 1.05) + 0.05 * focus)
+	if wall_trait == "brittle":
+		cost *= 0.7
 	if rock_hit:
 		cost += ROCK_COST
 	cost += FAULT_COST * fault_hits
@@ -299,7 +321,8 @@ func strike(c: Vector2i) -> void:
 
 	for idx in damaged:
 		var t: Dictionary = treasures[idx]
-		t["cond"] = mini(int(t["cond"]) + 1, Game.CONDITIONS.size() - 1)
+		var hurt := 2 if wall_trait == "brittle" else 1
+		t["cond"] = mini(int(t["cond"]) + hurt, Game.CONDITIONS.size() - 1)
 		_flash = 0.35
 		Sfx.play("damage")
 		treasure_damaged.emit(t)
@@ -317,6 +340,11 @@ func strike(c: Vector2i) -> void:
 			Sfx.play("found")
 			treasure_found.emit(t)
 
+	# Steady hands builds with clean pick work and breaks on any mishap.
+	if tool_name == "pick" and damaged.is_empty() and fault_hits == 0 and gas_vents == 0:
+		focus = mini(focus + 1, FOCUS_MAX)
+	else:
+		focus = 0
 	stability = maxf(stability - cost, 0.0)
 	var all_found := true
 	for t in treasures:
@@ -457,6 +485,8 @@ func _draw() -> void:
 			Game.draw_treasure(self, t["id"], r, 0.35)
 		else:
 			Game.draw_treasure(self, t["id"], r)
+		if t.get("shine", false):
+			Game.draw_gleam(self, r, 0.4 if t["found"] else 1.0)
 
 	# Stone.
 	for y in ROWS:

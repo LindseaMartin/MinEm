@@ -25,6 +25,7 @@ const TOOL_INFO := {
 var tier: int = 1
 var depth: int = 0
 var special: String = ""
+var site_trait: String = ""
 var bonus_cash: int = 0   # reward for clearing the wall, paid on leaving
 var was_cleared: bool = false
 var was_flawless: bool = false
@@ -41,10 +42,11 @@ var canary = null
 var _chirp_timer: float = 0.0
 
 
-func setup(site_tier: int, site_depth: int = 0, site_special: String = "") -> void:
+func setup(site_tier: int, site_depth: int = 0, site_special: String = "", trait_id: String = "") -> void:
 	tier = clampi(site_tier, 1, 3)
 	depth = site_depth
 	special = site_special
+	site_trait = trait_id if Game.TRAITS.has(trait_id) else ""
 
 
 func _ready() -> void:
@@ -61,6 +63,9 @@ func _ready() -> void:
 		title.add_theme_color_override("font_color", Color(1.0, 0.55, 0.4))
 	else:
 		title.text = "%s  -  chip carefully, the wall won't hold forever" % TIER_NAMES[tier - 1]
+		if site_trait != "":
+			var t: Dictionary = Game.TRAITS[site_trait]
+			title.text = "%s, %s: %s" % [TIER_NAMES[tier - 1], str(t["name"]).to_lower(), t["desc"]]
 	title.position = Vector2(8, 8)
 	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
 	add_child(title)
@@ -68,7 +73,7 @@ func _ready() -> void:
 	wall = WallScript.new()
 	wall.position = Vector2(8, 28)
 	add_child(wall)
-	wall.generate(tier, depth, special)
+	wall.generate(tier, depth, special, site_trait)
 	wall.changed.connect(_refresh)
 	wall.treasure_found.connect(_on_found)
 	wall.treasure_damaged.connect(_on_damaged)
@@ -216,6 +221,8 @@ func _select_tool(id: String) -> void:
 func _refresh() -> void:
 	stability_bar.value = wall.stability
 	stability_label.text = "Wall stability: %d / %d" % [int(ceil(wall.stability)), int(wall.stability_max)]
+	if wall.focus > 0:
+		stability_label.text += "\nSteady hands x%d: strikes -%d%%" %[wall.focus, int(round(wall.focus * WallScript.FOCUS_STEP * 100.0))]
 	var ratio: float = wall.stability / wall.stability_max
 	stability_bar.modulate = Color(1, 1, 1) if ratio > 0.35 else Color(1.0, 0.45, 0.4)
 	tool_buttons["pick"].text = "1 Pick"
@@ -237,6 +244,7 @@ func _on_found(t: Dictionary) -> void:
 	var row := HBoxContainer.new()
 	var icon = IconScript.new()
 	icon.treasure_id = t["id"]
+	icon.shine = t.get("shine", false)
 	icon.custom_minimum_size = Vector2(14, 14)
 	row.add_child(icon)
 	var label := Label.new()
@@ -244,7 +252,7 @@ func _on_found(t: Dictionary) -> void:
 	row.add_child(label)
 	found_box.add_child(row)
 	_say("You freed a %s!" % Game.TREASURES[t["id"]]["name"])
-	_float(_treasure_center(t), "+ " + str(Game.TREASURES[t["id"]]["name"]), Color(1.0, 0.9, 0.45))
+	_float(_treasure_center(t), "+ " + ("Gleaming " if t.get("shine", false) else "") + str(Game.TREASURES[t["id"]]["name"]), Color(1.0, 0.9, 0.45))
 
 
 func _on_damaged(t: Dictionary) -> void:
@@ -264,7 +272,7 @@ func _on_cleared() -> void:
 			flawless = false
 	was_cleared = true
 	was_flawless = flawless
-	bonus_cash = 20 * (tier + depth) * (2 if flawless else 1)
+	bonus_cash = 20 * (tier + depth) * (2 if flawless else 1) * (2 if site_trait == "granite" else 1)
 	if flawless:
 		_say("Flawless dig! Everything recovered in pristine condition. Bonus $%d." % bonus_cash)
 	else:
