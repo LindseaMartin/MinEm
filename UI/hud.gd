@@ -104,7 +104,7 @@ func _label(color: Color) -> Label:
 func _refresh() -> void:
 	money_label.text = "$%d" % Game.money
 	stats_label.text = "Pack %d/%d     Day %d" % [Game.bag.size(), Game.pack_capacity(), Game.day]
-	place_label.text = Game.depth_name()
+	place_label.text = "%s  -  %s" % [str(Game.look.get("name", "Prospector")), Game.depth_name()]
 	supplies_label.text = "Props %d   Dynamite %d   Oil flasks %d" % [
 		Game.supply_count("prop"), Game.supply_count("dynamite"), Game.supply_count("flask")]
 	_refresh_goal()
@@ -223,3 +223,18 @@ func _draw() -> void:
 	if oil_frac <= 0.0 and fmod(_blink, 0.6) < 0.3:
 		draw_rect(bar, Color(1.0, 0.2, 0.2, 0.7))
 	draw_rect(bar, Color(0.45, 0.35, 0.2), false, 1.0)
+
+
+## Screen rectangles of the gauges, for hint bubbles to point at.
+func detector_rect() -> Rect2:
+	var area := Rect2(Vector2(size.x - GAUGE_SIZE.x - MARGIN, MARGIN), GAUGE_SIZE)
+	return Rect2(area.position, Vector2(area.size.x, area.size.y * 0.5))
+
+
+func oil_rect() -> Rect2:
+	var area := Rect2(Vector2(size.x - GAUGE_SIZE.x - MARGIN, MARGIN), GAUGE_SIZE)
+	return Rect2(area.position + Vector2(0, area.size.y * 0.5), Vector2(area.size.x, area.size.y * 0.5))
+
+
+func goal_ready() -> bool:
+	return goal_bar.visible and goal_bar.value >= goal_bar.max_value and goal_bar.max_value > 0

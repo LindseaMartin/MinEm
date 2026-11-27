@@ -218,6 +218,10 @@ var milestones_done: Dictionary = {}  # milestone id -> true
 var today: Dictionary = {}
 ## depth -> {Vector2i: true}: map cells the lantern has lit up.
 var explored: Dictionary = {}
+## How the player looks (see Characters/look.gd).
+var look: Dictionary = {}
+## One-time hint bubbles already shown (id -> true).
+var hints_seen: Dictionary = {}
 
 var _fossil_tex: Texture2D
 var _fossil_regions: Array = []
@@ -249,6 +253,8 @@ func reset() -> void:
 	stats = {}
 	milestones_done = {}
 	explored = {}
+	look = {"name": "Prospector", "hair": 0, "skin": 0, "shirt": 0, "pants": 0, "hat": "helmet"}
+	hints_seen = {}
 	_reset_today()
 	contracts = []
 	_fill_contracts()
@@ -767,6 +773,7 @@ func save_game() -> void:
 		"journal": journal, "heart_found": heart_found,
 		"stats": stats, "milestones_done": milestones_done, "today": today,
 		"explored": _explored_for_save(),
+		"look": look, "hints_seen": hints_seen,
 		"upgrades": upgrades, "collection": collection,
 	}))
 
@@ -848,6 +855,15 @@ func load_game() -> void:
 				today[key] = str(saved_today[key]) if key == "best" else int(saved_today[key])
 	else:
 		today["start_money"] = money
+	var saved_look = data.get("look", {})
+	if typeof(saved_look) == TYPE_DICTIONARY:
+		for key in look:
+			if saved_look.has(key):
+				look[key] = str(saved_look[key]) if key == "name" or key == "hat" else int(saved_look[key])
+	var saved_hints = data.get("hints_seen", {})
+	if typeof(saved_hints) == TYPE_DICTIONARY:
+		for key in saved_hints:
+			hints_seen[str(key)] = true
 	var saved_map = data.get("explored", {})
 	if typeof(saved_map) == TYPE_DICTIONARY:
 		for key in saved_map:

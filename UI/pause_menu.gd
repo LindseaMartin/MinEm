@@ -4,6 +4,7 @@ extends Control
 
 signal resumed
 signal quit_requested
+signal wardrobe_requested
 
 var in_game: bool = true
 var _done: bool = false
@@ -38,6 +39,7 @@ func _ready() -> void:
 	_add_slider(box, "Detector beeps", Settings.beep_volume, _on_beeps)
 	_add_slider(box, "Ambience", Settings.ambience, _on_ambience)
 	_add_check(box, "Screen shake", Settings.screen_shake, _on_shake)
+	_add_check(box, "Show tips", Settings.hints, _on_hints)
 	_add_check(box, "Fullscreen", Settings.fullscreen, _on_fullscreen)
 
 	var size_row := HBoxContainer.new()
@@ -66,6 +68,10 @@ func _ready() -> void:
 	back.grab_focus()
 
 	if in_game:
+		var look := Button.new()
+		look.text = "Change look"
+		look.pressed.connect(_wardrobe)
+		box.add_child(look)
 		var quit := Button.new()
 		quit.text = "Save and quit to title"
 		quit.pressed.connect(_quit)
@@ -90,6 +96,10 @@ func _on_ambience(v: float) -> void:
 func _on_text_size(index: int) -> void:
 	Settings.text_size = index
 	Settings.apply()
+
+
+func _on_hints(on: bool) -> void:
+	Settings.hints = on
 
 
 func _on_shake(on: bool) -> void:
@@ -141,6 +151,15 @@ func _resume() -> void:
 	_done = true
 	Settings.save()
 	resumed.emit()
+	queue_free()
+
+
+func _wardrobe() -> void:
+	if _done:
+		return
+	_done = true
+	Settings.save()
+	wardrobe_requested.emit()
 	queue_free()
 
 

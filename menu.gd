@@ -3,6 +3,7 @@ extends Control
 
 const IconScript := preload("res://UI/treasure_icon.gd")
 const PauseScript := preload("res://UI/pause_menu.gd")
+const WardrobeScript := preload("res://UI/wardrobe.gd")
 const MINE_SCENE := "res://Levels/level_0.tscn"
 
 var new_button: Button
@@ -106,6 +107,11 @@ func _new_game() -> void:
 		return
 	Game.new_game()
 	Sfx.play("buy")
+	# Make your character before heading in.
+	var wardrobe = WardrobeScript.new()
+	wardrobe.first_time = true
+	add_child(wardrobe)
+	await wardrobe.closed
 	get_tree().change_scene_to_file(MINE_SCENE)
 
 

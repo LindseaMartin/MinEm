@@ -13,6 +13,7 @@ var ambience: float = 0.6      # cave drone, drips and rumbles, 0..1
 var screen_shake: bool = true
 var fullscreen: bool = false
 var text_size: int = 1        # index into TEXT_SIZES
+var hints: bool = true        # one-time tips that point things out
 
 
 func _ready() -> void:
@@ -24,6 +25,7 @@ func _ready() -> void:
 		screen_shake = bool(cfg.get_value("video", "screen_shake", screen_shake))
 		fullscreen = bool(cfg.get_value("video", "fullscreen", fullscreen))
 		text_size = clampi(int(cfg.get_value("video", "text_size", text_size)), 0, TEXT_SIZES.size() - 1)
+		hints = bool(cfg.get_value("video", "hints", hints))
 	apply()
 
 
@@ -44,6 +46,7 @@ func save() -> void:
 	cfg.set_value("video", "screen_shake", screen_shake)
 	cfg.set_value("video", "fullscreen", fullscreen)
 	cfg.set_value("video", "text_size", text_size)
+	cfg.set_value("video", "hints", hints)
 	cfg.save(PATH)
 
 

@@ -17,8 +17,12 @@ const DecoScript := preload("res://Levels/deco.gd")
 const LiftScript := preload("res://Levels/lift.gd")
 const ChoiceScript := preload("res://UI/choice_popup.gd")
 const BatScript := preload("res://Levels/bat.gd")
-const PauseScript := preload("res://UI/pause_menu.gd")
 const MapScript := preload("res://UI/map_view.gd")
+const PauseScript := preload("res://UI/pause_menu.gd")
+const WardrobeScript := preload("res://UI/wardrobe.gd")
+const HintScript := preload("res://UI/hint_bubble.gd")
+const Look := preload("res://Characters/look.gd")
+const HatScript := preload("res://Characters/hat.gd")
 const BAT_OIL := 15.0
 const MINE_SCENE := "res://Levels/level_0.tscn"
 
@@ -84,6 +88,10 @@ var _time: float = 0.0
 var _block_interact_frame: int = -1
 var map_view = null
 var _explore_timer: float = 0.0
+var _hint_bubble = null
+var _hint_timer: float = 1.0
+var _look_material: ShaderMaterial
+var _hat
 
 
 func _ready() -> void:
@@ -113,6 +121,7 @@ func _ready() -> void:
 	lantern.color = Color(1.0, 0.86, 0.62)
 	lantern.energy = 1.15
 	player.add_child(lantern)
+	_apply_look()
 
 	if depth > 0:
 		_generate_cave()
@@ -522,6 +531,10 @@ func _process(delta: float) -> void:
 		return
 	var ppos: Vector2 = player.position
 	_burn_oil(delta, ppos)
+	_hint_timer -= delta
+	if _hint_timer <= 0.0 and not busy:
+		_hint_timer = 0.5
+		_check_hints(ppos)
 	_explore_timer -= delta
 	if _explore_timer <= 0.0:
 		_explore_timer = 0.2
@@ -633,6 +646,8 @@ func _set_busy(value: bool) -> void:
 	if value:
 		_close_map()
 		hud.set_prompt("")
+		if _hint_bubble != null and is_instance_valid(_hint_bubble):
+			_hint_bubble.dismiss()
 	else:
 		_block_interact_frame = Engine.get_process_frames()
 
@@ -889,6 +904,7 @@ func _open_pause() -> void:
 	pause.in_game = true
 	pause.resumed.connect(func(): _set_busy(false))
 	pause.quit_requested.connect(_quit_to_title)
+	pause.wardrobe_requested.connect(_open_wardrobe)
 	ui_layer.add_child(pause)
 
 
@@ -973,3 +989,98 @@ func _use_lift() -> void:
 		_set_busy(false)
 		return
 	_change_depth(int(picked), false)
+
+
+# ------------------------------------------------------------- your look
+
+func _apply_look() -> void:
+	var sprite: Sprite2D = player.get_node("Sprite2D")
+	if _look_material == null:
+		_look_material = Look.make_material(Game.look)
+		sprite.material = _look_material
+	else:
+		Look.update_material(_look_material, Game.look)
+	if _hat == null:
+		_hat = HatScript.new()
+		player.add_child(_hat)
+	_hat.set_hat(str(Game.look.get("hat", "helmet")))
+
+
+func _open_wardrobe() -> void:
+	var wardrobe = WardrobeScript.new()
+	ui_layer.add_child(wardrobe)
+	await wardrobe.closed
+	_apply_look()
+	_set_busy(false)
+
+
+# ------------------------------------------------------------------ tips
+# One-time tips that point at things as they become relevant. Each is shown
+# once per save (Game.hints_seen) and can be turned off in the settings.
+
+func _hint(id: String, text: String, target) -> bool:
+	if Game.hints_seen.has(id):
+		return false
+	Game.hints_seen[id] = true
+	var bubble = HintScript.new()
+	bubble.text = text
+	bubble.target = target
+	bubble.finished.connect(_on_hint_finished)
+	ui_layer.add_child(bubble)
+	_hint_bubble = bubble
+	return true
+
+
+func _on_hint_finished() -> void:
+	_hint_bubble = null
+
+
+func _check_hints(ppos: Vector2) -> void:
+	if not Settings.hints or _hint_bubble != null:
+		return
+	var oil_frac := Game.oil / Game.oil_max()
+	if depth == 0 and Game.stat("digs") == 0 and _time > 2.5:
+		if _hint("detector", "Your detector beeps faster the closer you get to buried treasure. Follow it!", hud.detector_rect()):
+			return
+	for s in spots:
+		if s.revealed and ppos.distance_to(s.position) < SIGHT_RANGE:
+			if _hint("glint", "A dig site! Walk up to the sparkle and press E.", s):
+				return
+			break
+	if trader != null and Game.stat("digs") >= 1 and not Game.bag.is_empty() and Game.stat("earned") == 0:
+		if _hint("sell", "Bring your finds to Mags at the campfire to sell them.", trader):
+			return
+	if hud.goal_ready():
+		if _hint("upgrade", "You can afford new gear! Mags sells upgrades in the Gear tab.", hud.goal_bar):
+			return
+	if oil_frac < 0.5 and (trader == null or ppos.distance_to(trader.position) > CAMP_RADIUS):
+		if _hint("oil", "Your lantern burns oil away from the campfire. Head back before it runs dry.", hud.oil_rect()):
+			return
+	if oil_frac < 0.3 and Game.supply_count("flask") > 0:
+		if _hint("flask", "Running low? Press F to pour in an oil flask.", hud.oil_rect()):
+			return
+	if shaft != null and ppos.distance_to(shaft.position) < 70.0:
+		var shaft_text := "This shaft leads deeper. You'll need a Climbing Rope from Mags."
+		if Game.max_depth() > depth:
+			shaft_text = "A shaft down to %s. Deeper means richer, but darker." % Game.depth_name(depth + 1)
+		if _hint("shaft", shaft_text, shaft):
+			return
+	for c in caches:
+		if not c.opened and ppos.distance_to(c.position) < 70.0:
+			if _hint("cache", "An old supply crate. Search it with E. It restocks every day.", c):
+				return
+			break
+	for c in Game.contracts:
+		if Game.contract_ready(c):
+			if _hint("contract", "You have something a buyer wants. Deliver it in Mags' Contracts tab.", hud.alert_label):
+				return
+			break
+	if depth > 0 and ladder != null:
+		if _hint("deep", "No campfire down here. The ladder takes you back up, so keep an eye on your oil.", ladder):
+			return
+	if lift != null and Game.max_depth() >= 1 and ppos.distance_to(lift.position) < 70.0:
+		if _hint("lift", "The old lift. Once Mags repairs it, it saves the long climb.", lift):
+			return
+	if _time > 150.0 and Game.explored_cells(depth).size() > 200:
+		if _hint("map", "Press Tab for a map of everywhere your lantern has lit.", null):
+			return

@@ -5,6 +5,8 @@ extends CharacterBody2D
 
 ## Set to false while a menu or the dig screen is open.
 var can_move : bool = true
+## 1 when last moving right, -1 when last moving left (hats flip with it).
+var facing : float = 1.0
 
 
 @onready var animation_tree = $AnimationTree
@@ -22,6 +24,8 @@ func _physics_process(_delta):
 			Input.get_action_strength("down") - Input.get_action_strength("up")
 		)
 
+	if input_direction.x != 0.0:
+		facing = signf(input_direction.x)
 	update_animation_parameters(input_direction)
 
 
