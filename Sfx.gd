@@ -26,7 +26,7 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_players.append(p)
-	for kind in ["chip", "rock", "thud", "found", "damage", "collapse", "coin", "buy", "beep", "blast", "prop", "deny", "fanfare", "hiss", "flap", "drip", "chirp"]:
+	for kind in ["chip", "rock", "thud", "found", "damage", "collapse", "coin", "buy", "beep", "blast", "prop", "deny", "fanfare", "hiss", "flap", "drip", "chirp", "sparkle"]:
 		_streams[kind] = _synth(kind)
 	_amb_player = AudioStreamPlayer.new()
 	add_child(_amb_player)
@@ -122,7 +122,7 @@ func _synth(kind: String) -> AudioStreamWAV:
 	var lengths := {
 		"chip": 0.07, "rock": 0.09, "thud": 0.2, "found": 0.45, "damage": 0.28,
 		"collapse": 1.1, "coin": 0.22, "buy": 0.3, "beep": 0.06, "blast": 0.6,
-		"prop": 0.22, "deny": 0.16, "fanfare": 0.8, "hiss": 0.7, "flap": 0.35, "drip": 0.15, "chirp": 0.2,
+		"prop": 0.22, "deny": 0.16, "fanfare": 0.8, "hiss": 0.7, "flap": 0.35, "drip": 0.15, "chirp": 0.2, "sparkle": 0.36,
 	}
 	var duration: float = lengths[kind]
 	var count := int(duration * RATE)
@@ -180,6 +180,9 @@ func _synth(kind: String) -> AudioStreamWAV:
 				v = _tone(t, 1600.0 - 900.0 * u) * 0.6 * exp(-t * 35.0)
 			"chirp":
 				v = _tone(t, 2600.0 + 1400.0 * fmod(u * 2.0, 1.0)) * 0.35 * sin(fmod(u * 2.0, 1.0) * PI)
+			"sparkle":
+				var sn: float = [1760.0, 2217.0, 2637.0][mini(int(u * 3.0), 2)]
+				v = _tone(t, sn) * 0.35 * exp(-fmod(t, duration / 3.0) * 22.0)
 		data.encode_s16(i * 2, int(clampf(v, -1.0, 1.0) * 30000.0))
 	var stream := AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS

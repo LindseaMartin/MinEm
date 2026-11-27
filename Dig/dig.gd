@@ -9,6 +9,8 @@ const IconScript := preload("res://UI/treasure_icon.gd")
 const CanaryScript := preload("res://UI/canary.gd")
 const FloatScript := preload("res://UI/float_text.gd")
 const PopupScript := preload("res://UI/popup.gd")
+const UiTheme := preload("res://UI/ui_theme.gd")
+const WALL_SCALE := 2.0
 const GUIDE := ("Click a cell to chip away one layer of stone. Tan soil is soft, dark soil is harder and grey rock costs extra.\n\n"
 	+ "Free a treasure completely to claim it. Striking something that is already exposed damages it and lowers its price.\n\n"
 	+ "Every strike weakens the wall. If stability reaches zero it collapses and you keep only what was fully uncovered.\n\n"
@@ -38,6 +40,10 @@ var info_label: Label
 var found_box: VBoxContainer
 var message_label: Label
 var leave_button: Button
+var haul_label: Label
+var lucky_total: int = 0     # loose coins knocked out of this wall
+var _results_open: bool = false
+var _skip_tally: bool = false
 var canary = null
 var _chirp_timer: float = 0.0
 
@@ -66,12 +72,15 @@ func _ready() -> void:
 		if site_trait != "":
 			var t: Dictionary = Game.TRAITS[site_trait]
 			title.text = "%s, %s: %s" % [TIER_NAMES[tier - 1], str(t["name"]).to_lower(), t["desc"]]
-	title.position = Vector2(8, 8)
-	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
+	title.position = Vector2(24, 16)
+	title.add_theme_font_size_override("font_size", Settings.title_size())
+	if special != "heart":
+		title.add_theme_color_override("font_color", UiTheme.GOLD)
 	add_child(title)
 
 	wall = WallScript.new()
-	wall.position = Vector2(8, 28)
+	wall.position = Vector2(24, 52)
+	wall.scale = Vector2(WALL_SCALE, WALL_SCALE)
 	add_child(wall)
 	wall.generate(tier, depth, special, site_trait)
 	wall.changed.connect(_refresh)
@@ -80,29 +89,40 @@ func _ready() -> void:
 	wall.collapsed.connect(_on_collapsed)
 	wall.cleared.connect(_on_cleared)
 	wall.notice.connect(_say)
+	wall.treasure_glimpsed.connect(_on_glimpsed)
+	wall.lucky_coins.connect(_on_lucky)
 
+	var message_panel := PanelContainer.new()
+	message_panel.add_theme_stylebox_override("panel", UiTheme.hud_box())
+	message_panel.position = Vector2(24, 460)
+	message_panel.size = Vector2(572, 60)
+	add_child(message_panel)
 	message_label = Label.new()
-	message_label.position = Vector2(8, 230)
-	message_label.size = Vector2(286, 36)
 	message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	message_label.custom_minimum_size = Vector2(548, 0)
 	message_label.text = "Uncover a treasure completely to claim it."
-	add_child(message_label)
+	message_panel.add_child(message_label)
 
+	var side_panel := PanelContainer.new()
+	side_panel.position = Vector2(616, 52)
+	side_panel.size = Vector2(320, 468)
+	add_child(side_panel)
 	var side := VBoxContainer.new()
-	side.position = Vector2(304, 28)
-	side.size = Vector2(168, 236)
-	side.add_theme_constant_override("separation", 3)
-	add_child(side)
+	side.add_theme_constant_override("separation", 6)
+	side_panel.add_child(side)
 
 	stability_label = Label.new()
 	side.add_child(stability_label)
 	stability_bar = ProgressBar.new()
 	stability_bar.show_percentage = false
-	stability_bar.custom_minimum_size = Vector2(0, 8)
+	stability_bar.custom_minimum_size = Vector2(0, 14)
 	stability_bar.max_value = wall.stability_max
 	side.add_child(stability_bar)
 
-	var tools := HBoxContainer.new()
+	var tools := GridContainer.new()
+	tools.columns = 2
+	tools.add_theme_constant_override("h_separation", 6)
+	tools.add_theme_constant_override("v_separation", 6)
 	side.add_child(tools)
 	var group := ButtonGroup.new()
 	for id in ["pick", "hammer", "scan"]:
@@ -115,8 +135,7 @@ func _ready() -> void:
 		tools.add_child(b)
 		tool_buttons[id] = b
 
-	var extras := HBoxContainer.new()
-	side.add_child(extras)
+	var extras := tools
 	prop_button = Button.new()
 	prop_button.focus_mode = Control.FOCUS_NONE
 	prop_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -133,19 +152,25 @@ func _ready() -> void:
 
 	info_label = Label.new()
 	info_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	info_label.custom_minimum_size = Vector2(160, 34)
-	info_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.8))
+	info_label.custom_minimum_size = Vector2(290, 50)
+	info_label.add_theme_color_override("font_color", UiTheme.TEXT_DIM)
 	side.add_child(info_label)
 
+	haul_label = Label.new()
+	haul_label.add_theme_color_override("font_color", UiTheme.GOLD)
+	haul_label.add_theme_font_size_override("font_size", Settings.title_size())
+	side.add_child(haul_label)
+
 	var found_title := Label.new()
-	found_title.text = "Claimed:"
+	found_title.text = "Claimed"
+	found_title.add_theme_color_override("font_color", UiTheme.GOLD)
 	side.add_child(found_title)
 	var found_scroll := ScrollContainer.new()
 	found_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	side.add_child(found_scroll)
 	found_box = VBoxContainer.new()
 	found_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	found_box.add_theme_constant_override("separation", 1)
+	found_box.add_theme_constant_override("separation", 3)
 	found_scroll.add_child(found_box)
 
 	leave_button = Button.new()
@@ -156,7 +181,8 @@ func _ready() -> void:
 
 	if Game.level("canary") >= 2:
 		canary = CanaryScript.new()
-		canary.position = Vector2(454, 4)
+		canary.position = Vector2(892, 4)
+		canary.scale = Vector2(2, 2)
 		add_child(canary)
 
 	_select_tool("pick")
@@ -193,7 +219,7 @@ func _float(at: Vector2, text: String, color: Color) -> void:
 
 
 func _treasure_center(t: Dictionary) -> Vector2:
-	return wall.position + (Vector2(t["x"], t["y"]) + Vector2(t["w"], t["h"]) * 0.5) * WallScript.CELL
+	return wall.position + (Vector2(t["x"], t["y"]) + Vector2(t["w"], t["h"]) * 0.5) * WallScript.CELL * WALL_SCALE
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -219,18 +245,19 @@ func _select_tool(id: String) -> void:
 
 
 func _refresh() -> void:
+	haul_label.text = "Haul so far: $%d" % _haul_value()
 	stability_bar.value = wall.stability
 	stability_label.text = "Wall stability: %d / %d" % [int(ceil(wall.stability)), int(wall.stability_max)]
 	if wall.focus > 0:
 		stability_label.text += "\nSteady hands x%d: strikes -%d%%" %[wall.focus, int(round(wall.focus * WallScript.FOCUS_STEP * 100.0))]
 	var ratio: float = wall.stability / wall.stability_max
 	stability_bar.modulate = Color(1, 1, 1) if ratio > 0.35 else Color(1.0, 0.45, 0.4)
-	tool_buttons["pick"].text = "1 Pick"
-	tool_buttons["hammer"].text = "2 Hammer"
-	tool_buttons["scan"].text = "3 Scan x%d" % wall.scans_left
-	prop_button.text = "4 Prop x%d" % Game.supply_count("prop")
+	tool_buttons["pick"].text = "[1] Pick"
+	tool_buttons["hammer"].text = "[2] Hammer"
+	tool_buttons["scan"].text = "[3] Scan (%d)" % wall.scans_left
+	prop_button.text = "[4] Prop (%d)" % Game.supply_count("prop")
 	prop_button.disabled = Game.supply_count("prop") <= 0 or not wall.active
-	tool_buttons["dynamite"].text = "5 Dynamite x%d" % Game.supply_count("dynamite")
+	tool_buttons["dynamite"].text = "[5] Dynamite (%d)" % Game.supply_count("dynamite")
 	tool_buttons["dynamite"].disabled = Game.supply_count("dynamite") <= 0
 	if wall.tool_name == "dynamite" and Game.supply_count("dynamite") <= 0:
 		_select_tool("pick")
@@ -241,18 +268,64 @@ func _say(text: String) -> void:
 
 
 func _on_found(t: Dictionary) -> void:
+	var r := Game.rarity_of(t)
+	var col := Game.rarity_color(r)
 	var row := HBoxContainer.new()
 	var icon = IconScript.new()
 	icon.treasure_id = t["id"]
 	icon.shine = t.get("shine", false)
-	icon.custom_minimum_size = Vector2(14, 14)
+	icon.custom_minimum_size = Vector2(24, 24)
 	row.add_child(icon)
 	var label := Label.new()
 	label.text = Game.item_label(t)
+	label.add_theme_color_override("font_color", col)
 	row.add_child(label)
 	found_box.add_child(row)
-	_say("You freed a %s!" % Game.TREASURES[t["id"]]["name"])
-	_float(_treasure_center(t), "+ " + ("Gleaming " if t.get("shine", false) else "") + str(Game.TREASURES[t["id"]]["name"]), Color(1.0, 0.9, 0.45))
+
+	var value := Game.item_value(t)
+	_say("%s! You freed %s." % [Game.rarity_name(r), Game.item_label(t)])
+	_float(_treasure_center(t), "+$%d" % value, col)
+	if r >= 2:
+		_float(_treasure_center(t) + Vector2(0, -22), Game.rarity_name(r) + "!", col)
+	Sfx.play("found", 0.9 + 0.08 * r)
+	if r >= 2:
+		Sfx.play("sparkle", 1.0 + 0.1 * r, -10.0)
+	if r >= 4:
+		Sfx.play("fanfare", 1.1)
+	_hitstop(0.05 + 0.03 * r)
+	_refresh()
+
+
+func _on_glimpsed(t: Dictionary) -> void:
+	var r := Game.rarity_of(t)
+	Sfx.play("sparkle", 0.8 + 0.12 * r, -16.0 + 2.0 * r)
+	if r >= 2:
+		_float(_treasure_center(t), Game.rarity_name(r) + "?", Game.rarity_color(r))
+		_say("Something %s glints in the rock..." % Game.rarity_name(r).to_lower())
+
+
+func _on_lucky(amount: int, at: Vector2) -> void:
+	Game.money += amount
+	Game.changed.emit()
+	lucky_total += amount
+	Sfx.play("coin", 1.25)
+	_float(wall.position + at * WALL_SCALE, "+$%d" % amount, UiTheme.GOLD)
+	_refresh()
+
+
+## A tiny freeze-frame that makes big moments land.
+func _hitstop(seconds: float) -> void:
+	Engine.time_scale = 0.05
+	await get_tree().create_timer(seconds, true, false, true).timeout
+	Engine.time_scale = 1.0
+
+
+func _haul_value() -> int:
+	var total := lucky_total
+	for t in wall.treasures:
+		if t["found"]:
+			total += Game.item_value(t)
+	return total
 
 
 func _on_damaged(t: Dictionary) -> void:
@@ -282,6 +355,105 @@ func _on_cleared() -> void:
 
 
 func _leave() -> void:
+	if _results_open:
+		return
+	_results_open = true
 	leave_button.disabled = true
 	wall.active = false
+	await _show_tally()
 	finished.emit(wall.found_items())
+
+
+## Counts up everything this wall gave you, one line at a time.
+func _show_tally() -> void:
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(dim)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(480, 0)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	panel.add_child(box)
+	var title := Label.new()
+	title.text = "Your haul"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_color_override("font_color", UiTheme.GOLD)
+	title.add_theme_font_size_override("font_size", Settings.title_size())
+	box.add_child(title)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 4)
+	box.add_child(list)
+	var total_label := Label.new()
+	total_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	total_label.add_theme_color_override("font_color", UiTheme.GOLD)
+	total_label.add_theme_font_size_override("font_size", Settings.title_size() + 4)
+	box.add_child(total_label)
+	var note := Label.new()
+	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(note)
+	var button := Button.new()
+	button.text = "Skip"
+	button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	button.custom_minimum_size = Vector2(160, 0)
+	button.pressed.connect(func(): _skip_tally = true)
+	box.add_child(button)
+	button.grab_focus()
+
+	# [label, value, colour, treasure (or {})]
+	var entries: Array = []
+	for t in wall.treasures:
+		if t["found"]:
+			entries.append([Game.item_label(t), Game.item_value(t), Game.rarity_color(Game.rarity_of(t)), t])
+	if lucky_total > 0:
+		entries.append(["Loose coins", lucky_total, UiTheme.GOLD, {}])
+	if bonus_cash > 0:
+		entries.append(["Flawless bonus" if was_flawless else "Clear bonus", bonus_cash, UiTheme.GOOD, {}])
+
+	var total := 0
+	total_label.text = "Total: $0"
+	if entries.is_empty():
+		var none := Label.new()
+		none.text = "Nothing this time. The rock wins today."
+		none.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		none.add_theme_color_override("font_color", UiTheme.TEXT_DIM)
+		list.add_child(none)
+	for i in entries.size():
+		var e: Array = entries[i]
+		if not _skip_tally:
+			await get_tree().create_timer(0.3).timeout
+		var row := HBoxContainer.new()
+		var t: Dictionary = e[3]
+		if not t.is_empty():
+			var icon = IconScript.new()
+			icon.treasure_id = t["id"]
+			icon.shine = t.get("shine", false)
+			icon.custom_minimum_size = Vector2(28, 28)
+			row.add_child(icon)
+		var name_label := Label.new()
+		name_label.text = str(e[0])
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_label.add_theme_color_override("font_color", e[2])
+		row.add_child(name_label)
+		var value_label := Label.new()
+		value_label.text = "$%d" % int(e[1])
+		value_label.add_theme_color_override("font_color", e[2])
+		row.add_child(value_label)
+		list.add_child(row)
+		total += int(e[1])
+		total_label.text = "Total: $%d" % total
+		if not _skip_tally:
+			Sfx.play("coin", 0.85 + 0.06 * i)
+
+	if total > 0 and total > Game.stat("best_haul"):
+		note.text = "New best haul!"
+		note.add_theme_color_override("font_color", UiTheme.GOOD)
+		Sfx.play("fanfare", 1.15)
+		Game.stat_max("best_haul", total)
+	button.text = "Continue"
+	button.grab_focus()
+	await button.pressed

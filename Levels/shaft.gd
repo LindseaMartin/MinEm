@@ -35,7 +35,7 @@ func _draw() -> void:
 		for i in 5:
 			var y := 6.0 - i * 4.0
 			draw_line(Vector2(-4, y), Vector2(4, y), wood.lightened(0.15), 1.0)
-		draw_string(ThemeDB.fallback_font, Vector2(-12, -15), "LIFT" if lift else "UP", HORIZONTAL_ALIGNMENT_CENTER, 24, 6,
+		draw_string(ThemeDB.fallback_font, Vector2(-12, -15), "LIFT" if lift else "UP", HORIZONTAL_ALIGNMENT_CENTER, 24, 5,
 			Color(0.85, 0.9, 1.0, 0.6 + 0.3 * sin(_time * 3.0)))
 	else:
 		draw_circle(Vector2.ZERO, 9.0, Color(0.25, 0.18, 0.12))
@@ -45,5 +45,5 @@ func _draw() -> void:
 		for i in 3:
 			var y := -5.0 + i * 4.0
 			draw_line(Vector2(-3, y), Vector2(3, y), wood.darkened(0.2 + i * 0.25), 1.0)
-		draw_string(ThemeDB.fallback_font, Vector2(-12, -12), "DOWN", HORIZONTAL_ALIGNMENT_CENTER, 24, 6,
+		draw_string(ThemeDB.fallback_font, Vector2(-12, -12), "DOWN", HORIZONTAL_ALIGNMENT_CENTER, 24, 5,
 			Color(1.0, 0.85, 0.6, 0.6 + 0.3 * sin(_time * 3.0)))

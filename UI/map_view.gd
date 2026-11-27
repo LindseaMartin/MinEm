@@ -2,6 +2,8 @@ extends Control
 ## Full-screen map of the current level (Tab). Only shows what your lantern
 ## has lit up so far, plus the camp, shafts, crates and dig sites you've seen.
 
+const UiTheme := preload("res://UI/ui_theme.gd")
+
 var mine   # the Levels/mine.gd node
 var _bounds := Rect2i()
 var _time: float = 0.0
@@ -38,15 +40,15 @@ func _draw() -> void:
 	if mine == null or _bounds.size.x <= 0:
 		return
 	var font := get_theme_default_font()
-	var panel := Rect2(Vector2(24, 20), size - Vector2(48, 40))
-	draw_rect(panel, Color(0.04, 0.03, 0.04, 0.9))
-	draw_rect(panel, Color(0.6, 0.5, 0.35), false, 1.0)
-	draw_string(font, panel.position + Vector2(6, 11), "%s  -  Tab to close" % Game.depth_name(mine.depth),
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.95, 0.85, 0.6))
+	var fs := Settings.font_size()
+	var panel := Rect2(Vector2(48, 40), size - Vector2(96, 80))
+	draw_style_box(UiTheme.box(UiTheme.PANEL_BG, UiTheme.PANEL_EDGE, 2, 5), panel)
+	draw_string(font, panel.position + Vector2(14, 12 + fs), "%s  -  Tab to close" % Game.depth_name(mine.depth),
+		HORIZONTAL_ALIGNMENT_LEFT, -1, Settings.title_size(), UiTheme.GOLD)
 
-	var area := panel.grow(-8.0)
-	area.position.y += 10
-	area.size.y -= 10
+	var area := panel.grow(-16.0)
+	area.position.y += 16 + fs
+	area.size.y -= 32 + fs * 2
 	var cell_px := floorf(minf(area.size.x / _bounds.size.x, area.size.y / _bounds.size.y))
 	cell_px = maxf(cell_px, 1.0)
 	var map_size := Vector2(_bounds.size) * cell_px
@@ -63,22 +65,22 @@ func _draw() -> void:
 			draw_rect(r, Color(0.2, 0.16, 0.14))
 
 	if mine.trader != null:
-		_marker(origin, cell_px, _cell_of(mine.trader), Color(1.0, 0.55, 0.2), 3.0)
+		_marker(origin, cell_px, _cell_of(mine.trader), Color(1.0, 0.55, 0.2), 6.0)
 	if mine.shaft != null and seen.has(_cell_of(mine.shaft)):
-		_marker(origin, cell_px, _cell_of(mine.shaft), Color(0.1, 0.1, 0.1), 3.0)
-		_marker(origin, cell_px, _cell_of(mine.shaft), Color(0.8, 0.8, 0.9), 1.5)
+		_marker(origin, cell_px, _cell_of(mine.shaft), Color(0.1, 0.1, 0.1), 6.0)
+		_marker(origin, cell_px, _cell_of(mine.shaft), Color(0.8, 0.8, 0.9), 3.0)
 	if mine.ladder != null:
-		_marker(origin, cell_px, _cell_of(mine.ladder), Color(0.75, 0.85, 1.0), 2.5)
+		_marker(origin, cell_px, _cell_of(mine.ladder), Color(0.75, 0.85, 1.0), 5.0)
 	for c in mine.caches:
 		if not c.opened and seen.has(_cell_of(c)):
 			var p: Vector2 = origin + (Vector2(_cell_of(c)) + Vector2(0.5, 0.5)) * cell_px
-			draw_rect(Rect2(p - Vector2(2, 2), Vector2(4, 4)), Color(0.8, 0.6, 0.3))
+			draw_rect(Rect2(p - Vector2(4, 4), Vector2(8, 8)), Color(0.8, 0.6, 0.3))
 	for s in mine.spots:
 		if s.revealed:
 			var col := Color(1.0, 0.35, 0.25) if s.special == "heart" else Color(1.0, 0.95, 0.5)
-			_marker(origin, cell_px, _cell_of(s), col, 2.0)
+			_marker(origin, cell_px, _cell_of(s), col, 4.0)
 	if fmod(_time, 0.8) < 0.55:
-		_marker(origin, cell_px, _cell_of(mine.player), Color(1, 1, 1), 2.5)
+		_marker(origin, cell_px, _cell_of(mine.player), Color(1, 1, 1), 5.0)
 
 	var legend := "White: you   Orange: camp   Grey: shaft   Blue: ladder   Brown: crate   Yellow: dig site"
-	draw_string(font, Vector2(panel.position.x + 6, panel.end.y - 4), legend, HORIZONTAL_ALIGNMENT_LEFT, -1, 8, Color(0.7, 0.7, 0.75))
+	draw_string(font, Vector2(panel.position.x + 14, panel.end.y - 12), legend, HORIZONTAL_ALIGNMENT_LEFT, -1, Settings.small_size(), UiTheme.TEXT_DIM)

@@ -123,6 +123,17 @@ const TRAIT_KINDS := {"gems": ["gem", "cluster", "shard", "geode"], "bones": ["f
 const GLEAM_CHANCE := 0.04
 const GLEAM_MULT := 3.0
 
+## Loot rarity, by a treasure's base value (gleaming ones count triple).
+const RARITIES := [
+	{"name": "Common", "color": "d8d2c8", "min": 0},
+	{"name": "Uncommon", "color": "6fdc7a", "min": 40},
+	{"name": "Rare", "color": "5aa8ff", "min": 120},
+	{"name": "Epic", "color": "c07bff", "min": 300},
+	{"name": "Legendary", "color": "ffa53a", "min": 600},
+]
+## Chance that chipping a cell knocks loose a few coins.
+const LUCKY_COIN_CHANCE := 0.025
+
 ## Collecting every treasure in a set permanently raises all sale prices.
 const SETS := [
 	{"name": "Relics", "ids": ["coin", "lantern"]},
@@ -172,6 +183,7 @@ const MILESTONES := [
 	{"id": "contract5", "name": "Reliable Supplier", "desc": "Complete 5 contracts.", "stat": "contracts", "goal": 5, "reward": 150},
 	{"id": "geode5", "name": "Geode Gambler", "desc": "Have 5 geodes cracked.", "stat": "geodes", "goal": 5, "reward": 60},
 	{"id": "gleam1", "name": "Something Shiny", "desc": "Find a gleaming treasure.", "stat": "gleams", "goal": 1, "reward": 100},
+	{"id": "haul1k", "name": "Big Haul", "desc": "Bring $1,000 out of a single wall.", "stat": "best_haul", "goal": 1000, "reward": 150},
 	{"id": "caches10", "name": "Scavenger", "desc": "Search 10 old crates.", "stat": "caches", "goal": 10, "reward": 80},
 	{"id": "pages", "name": "The Whole Story", "desc": "Find every journal page.", "stat": "pages", "goal": 8, "reward": 200},
 	{"id": "sets", "name": "Curator", "desc": "Complete every collection set.", "stat": "sets", "goal": 5, "reward": 1000},
@@ -337,6 +349,22 @@ func item_value(item: Dictionary) -> int:
 	if item.get("shine", false):
 		base *= GLEAM_MULT
 	return int(round(base * float(CONDITIONS[int(item["cond"])]["mult"])))
+
+func rarity_of(item: Dictionary) -> int:
+	var value := float(TREASURES[item["id"]]["value"])
+	if item.get("shine", false):
+		value *= GLEAM_MULT
+	var r := 0
+	for i in RARITIES.size():
+		if value >= float(RARITIES[i]["min"]):
+			r = i
+	return r
+
+func rarity_color(r: int) -> Color:
+	return Color(str(RARITIES[clampi(r, 0, RARITIES.size() - 1)]["color"]))
+
+func rarity_name(r: int) -> String:
+	return str(RARITIES[clampi(r, 0, RARITIES.size() - 1)]["name"])
 
 func item_label(item: Dictionary) -> String:
 	var title: String = TREASURES[item["id"]]["name"]

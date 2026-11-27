@@ -17,18 +17,19 @@ func _ready() -> void:
 	add_child(dim)
 
 	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(220, 0)
+	panel.custom_minimum_size = Vector2(420, 0)
 	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	add_child(panel)
 
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
+	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
 
 	var title := Label.new()
 	title.text = "Paused" if in_game else "Settings"
+	title.add_theme_font_size_override("font_size", Settings.title_size())
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
 	box.add_child(title)
@@ -38,6 +39,25 @@ func _ready() -> void:
 	_add_slider(box, "Ambience", Settings.ambience, _on_ambience)
 	_add_check(box, "Screen shake", Settings.screen_shake, _on_shake)
 	_add_check(box, "Fullscreen", Settings.fullscreen, _on_fullscreen)
+
+	var size_row := HBoxContainer.new()
+	var size_label := Label.new()
+	size_label.text = "Text size"
+	size_label.custom_minimum_size = Vector2(150, 0)
+	size_row.add_child(size_label)
+	var size_pick := OptionButton.new()
+	for size_name in Settings.TEXT_SIZE_NAMES:
+		size_pick.add_item(size_name)
+	size_pick.selected = Settings.text_size
+	size_pick.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	size_pick.item_selected.connect(_on_text_size)
+	size_row.add_child(size_pick)
+	box.add_child(size_row)
+	var hint := Label.new()
+	hint.text = "F11 toggles fullscreen at any time."
+	hint.add_theme_font_size_override("font_size", Settings.small_size())
+	hint.add_theme_color_override("font_color", Color(0.65, 0.63, 0.62))
+	box.add_child(hint)
 
 	var back := Button.new()
 	back.text = "Resume" if in_game else "Back"
@@ -67,6 +87,11 @@ func _on_ambience(v: float) -> void:
 	Settings.ambience = v
 
 
+func _on_text_size(index: int) -> void:
+	Settings.text_size = index
+	Settings.apply()
+
+
 func _on_shake(on: bool) -> void:
 	Settings.screen_shake = on
 
@@ -80,14 +105,14 @@ func _add_slider(box: VBoxContainer, label_text: String, value: float, on_change
 	var row := HBoxContainer.new()
 	var label := Label.new()
 	label.text = label_text
-	label.custom_minimum_size = Vector2(90, 0)
+	label.custom_minimum_size = Vector2(150, 0)
 	row.add_child(label)
 	var slider := HSlider.new()
 	slider.min_value = 0.0
 	slider.max_value = 1.0
 	slider.step = 0.05
 	slider.value = value
-	slider.custom_minimum_size = Vector2(110, 12)
+	slider.custom_minimum_size = Vector2(200, 18)
 	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	slider.focus_mode = Control.FOCUS_NONE
 	slider.value_changed.connect(on_change)

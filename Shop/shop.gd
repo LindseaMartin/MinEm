@@ -7,6 +7,8 @@ signal rest_requested
 
 const IconScript := preload("res://UI/treasure_icon.gd")
 const FloatScript := preload("res://UI/float_text.gd")
+const UiTheme := preload("res://UI/ui_theme.gd")
+const WIDE := 820.0   # width for wrapped text inside the window
 const TRADER := "Mags"
 ## Mags' tip of the day. Entries are [text, condition]; see _tip_allowed().
 const TIPS := [
@@ -51,11 +53,14 @@ func _ready() -> void:
 	add_child(dim)
 
 	var panel := PanelContainer.new()
-	panel.position = Vector2(30, 10)
-	panel.size = Vector2(420, 250)
+	panel.custom_minimum_size = Vector2(880, 500)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	panel.grow_vertical = Control.GROW_DIRECTION_BOTH
 	add_child(panel)
 
 	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 6)
 	panel.add_child(root)
 
 	var header := HBoxContainer.new()
@@ -63,20 +68,23 @@ func _ready() -> void:
 	var title := Label.new()
 	title.text = "Trader's Camp  -  " + TRADER
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
+	title.add_theme_color_override("font_color", UiTheme.GOLD)
+	title.add_theme_font_size_override("font_size", Settings.title_size())
 	header.add_child(title)
 	money_label = Label.new()
+	money_label.add_theme_color_override("font_color", UiTheme.GOLD)
+	money_label.add_theme_font_size_override("font_size", Settings.title_size())
 	header.add_child(money_label)
 
 	news_label = Label.new()
 	news_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	news_label.custom_minimum_size = Vector2(400, 0)
+	news_label.custom_minimum_size = Vector2(WIDE, 0)
 	news_label.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
 	root.add_child(news_label)
 
 	tip_label = Label.new()
 	tip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tip_label.custom_minimum_size = Vector2(400, 0)
+	tip_label.custom_minimum_size = Vector2(WIDE, 0)
 	tip_label.add_theme_color_override("font_color", Color(0.95, 0.8, 0.6))
 	tip_label.text = "%s: \"%s\"" % [TRADER, _tip_of_the_day()]
 	root.add_child(tip_label)
@@ -109,7 +117,7 @@ func _ready() -> void:
 	var con_help := Label.new()
 	con_help.text = "Requests from the trader's buyers. Deliver before they expire. Ruined items are refused."
 	con_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	con_help.custom_minimum_size = Vector2(400, 0)
+	con_help.custom_minimum_size = Vector2(WIDE, 0)
 	con_help.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
 	con_tab.add_child(con_help)
 	var con_scroll := ScrollContainer.new()
@@ -137,7 +145,7 @@ func _ready() -> void:
 	col_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col_tab.add_child(col_scroll)
 	collection_grid = GridContainer.new()
-	collection_grid.columns = 5
+	collection_grid.columns = 8
 	collection_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col_scroll.add_child(collection_grid)
 
@@ -235,7 +243,7 @@ func _float_money(text: String) -> void:
 	var f = FloatScript.new()
 	f.text = text
 	f.color = Color(1.0, 0.9, 0.4)
-	f.position = money_label.global_position + Vector2(money_label.size.x * 0.5, 14)
+	f.position = money_label.global_position + Vector2(money_label.size.x * 0.5, 30)
 	add_child(f)
 
 
@@ -285,10 +293,11 @@ func refresh() -> void:
 		var icon = IconScript.new()
 		icon.treasure_id = item["id"]
 		icon.shine = item.get("shine", false)
-		icon.custom_minimum_size = Vector2(18, 18)
+		icon.custom_minimum_size = Vector2(30, 30)
 		row.add_child(icon)
 		var label := Label.new()
 		label.text = Game.item_label(item)
+		label.add_theme_color_override("font_color", Game.rarity_color(Game.rarity_of(item)))
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		if item["id"] == Game.wanted:
 			label.text += "  - WANTED"
@@ -335,10 +344,11 @@ func refresh() -> void:
 			if Game.upgrade_locked(id):
 				desc.text += " (needs a longer rope first)"
 		desc.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
+		desc.add_theme_font_size_override("font_size", Settings.small_size())
 		text.add_child(desc)
 		row.add_child(text)
 		var buy := Button.new()
-		buy.custom_minimum_size = Vector2(70, 0)
+		buy.custom_minimum_size = Vector2(130, 0)
 		if cost < 0:
 			buy.text = "MAX"
 			buy.disabled = true
@@ -366,10 +376,11 @@ func refresh() -> void:
 		var desc := Label.new()
 		desc.text = str(def["desc"])
 		desc.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
+		desc.add_theme_font_size_override("font_size", Settings.small_size())
 		text.add_child(desc)
 		row.add_child(text)
 		var buy := Button.new()
-		buy.custom_minimum_size = Vector2(70, 0)
+		buy.custom_minimum_size = Vector2(130, 0)
 		buy.text = "Buy $%d" % int(def["cost"])
 		buy.disabled = Game.money < int(def["cost"]) or Game.supply_count(id) >= Game.SUPPLY_MAX
 		buy.pressed.connect(_buy_supply.bind(id))
@@ -387,10 +398,11 @@ func refresh() -> void:
 	var oil_desc := Label.new()
 	oil_desc.text = "Fill the lantern now instead of waiting for tomorrow."
 	oil_desc.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
+	oil_desc.add_theme_font_size_override("font_size", Settings.small_size())
 	oil_text.add_child(oil_desc)
 	oil_row.add_child(oil_text)
 	var refill := Button.new()
-	refill.custom_minimum_size = Vector2(70, 0)
+	refill.custom_minimum_size = Vector2(130, 0)
 	refill.text = "Fill $%d" % Game.OIL_REFILL_COST
 	refill.disabled = Game.money < Game.OIL_REFILL_COST or Game.oil >= Game.oil_max() - 0.5
 	refill.pressed.connect(_refill_oil)
@@ -419,10 +431,11 @@ func refresh() -> void:
 		desc.text = "You have %d/%d.  %s" % [have, int(c["need"]),
 			"Last day to deliver!" if left <= 0 else "Due by the end of day %d." % int(c["expires"])]
 		desc.add_theme_color_override("font_color", Color(1.0, 0.6, 0.5) if left <= 0 else Color(0.7, 0.75, 0.8))
+		desc.add_theme_font_size_override("font_size", Settings.small_size())
 		text.add_child(desc)
 		row.add_child(text)
 		var deliver := Button.new()
-		deliver.custom_minimum_size = Vector2(70, 0)
+		deliver.custom_minimum_size = Vector2(130, 0)
 		deliver.text = "Deliver"
 		deliver.disabled = not Game.contract_ready(c)
 		deliver.pressed.connect(_deliver.bind(i))
@@ -442,17 +455,18 @@ func refresh() -> void:
 		if known:
 			found += 1
 		var cell := VBoxContainer.new()
-		cell.custom_minimum_size = Vector2(74, 0)
+		cell.custom_minimum_size = Vector2(100, 0)
 		cell.add_theme_constant_override("separation", 0)
 		var icon = IconScript.new()
 		icon.treasure_id = id
 		icon.known = known
-		icon.custom_minimum_size = Vector2(74, 26)
+		icon.custom_minimum_size = Vector2(100, 46)
 		cell.add_child(icon)
 		var label := Label.new()
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		if known:
 			label.text = "%s x%d" % [def["name"], int(Game.collection[id])]
+			label.add_theme_color_override("font_color", Game.rarity_color(Game.rarity_of({"id": id, "cond": 0})))
 		else:
 			label.text = "???"
 			label.add_theme_color_override("font_color", Color(0.55, 0.55, 0.55))
@@ -477,7 +491,7 @@ func refresh() -> void:
 	rec_head.text = "Milestones %d/%d   -   Walls dug %d   Flawless %d   Earned $%d   Deepest: %s" % [
 		done, Game.MILESTONES.size(), Game.stat("digs"), Game.stat("flawless"), Game.stat("earned"), Game.depth_name(Game.stat("depth"))]
 	rec_head.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	rec_head.custom_minimum_size = Vector2(390, 0)
+	rec_head.custom_minimum_size = Vector2(WIDE, 0)
 	rec_head.add_theme_color_override("font_color", Color(0.95, 0.85, 0.6))
 	records_list.add_child(rec_head)
 	for m in Game.MILESTONES:
@@ -487,7 +501,7 @@ func refresh() -> void:
 		row.text = "%s %s - %s  ($%d)%s" % ["[x]" if got else "[ ]", m["name"], m["desc"], int(m["reward"]),
 			"" if got else "  %d/%d" % [progress, int(m["goal"])]]
 		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		row.custom_minimum_size = Vector2(390, 0)
+		row.custom_minimum_size = Vector2(WIDE, 0)
 		row.add_theme_color_override("font_color", Color(0.6, 1.0, 0.75) if got else Color(0.75, 0.75, 0.8))
 		records_list.add_child(row)
 
@@ -506,7 +520,7 @@ func refresh() -> void:
 		var body := Label.new()
 		body.text = Game.JOURNAL[i]
 		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		body.custom_minimum_size = Vector2(390, 0)
+		body.custom_minimum_size = Vector2(WIDE, 0)
 		journal_list.add_child(body)
 	if Game.journal < Game.JOURNAL.size():
 		var more := Label.new()

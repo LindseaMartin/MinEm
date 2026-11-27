@@ -10,6 +10,11 @@ class_name Transitioner
 
 func _ready():
 	animation_tex.visible = false
+	# Centre the iris on screen and make it big enough for any resolution.
+	var screen := get_viewport_rect().size
+	animation_tex.size = Vector2(128, 128)
+	animation_tex.pivot_offset = Vector2(64, 64)
+	animation_tex.position = screen * 0.5 - Vector2(64, 64)
 
 func set_next_animation(fading_out : bool):
 	if(fading_out):

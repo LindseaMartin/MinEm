@@ -15,6 +15,10 @@ signal treasure_damaged(treasure)
 signal collapsed
 signal cleared
 signal notice(text)
+## First time part of a buried treasure is uncovered (for the rarity sting).
+signal treasure_glimpsed(treasure)
+## Loose coins knocked out of the rock. `at` is in wall coordinates.
+signal lucky_coins(amount, at)
 
 const COLS := 13
 const ROWS := 9
@@ -49,6 +53,9 @@ var _hover := Vector2i(-1, -1)
 var _shake: float = 0.0
 var _flash: float = 0.0
 var _particles: Array = []
+var _rings: Array = []         # expanding rings when a treasure pops free
+var _time: float = 0.0
+var wall_depth: int = 0
 var _cracks: Array = []
 var _layer_tex: Array = []
 var _back_tex: Texture2D
@@ -74,6 +81,7 @@ func _ready() -> void:
 ## Game.TRAITS (or "") that changes how this wall plays.
 func generate(tier: int, depth: int = 0, special: String = "", site_trait: String = "") -> void:
 	wall_trait = site_trait
+	wall_depth = depth
 	focus = 0
 	stability_max = Game.wall_stability()
 	if wall_trait == "unstable":
@@ -262,6 +270,7 @@ func strike(c: Vector2i) -> void:
 	var fault_hits := 0
 	var gas_vents := 0
 	var damaged: Dictionary = {}
+	var lucky := 0
 	for entry in _footprint(c):
 		var cell: Vector2i = entry[0]
 		var layers: int = entry[1]
@@ -288,6 +297,8 @@ func strike(c: Vector2i) -> void:
 				gas_vents += 1
 				_gas_cloud(cell)
 		_burst(cell, th)
+		if randf() < Game.LUCKY_COIN_CHANCE:
+			lucky += randi_range(3, 12) * (1 + wall_depth)
 
 	if not chipped and damaged.is_empty():
 		return
@@ -327,17 +338,26 @@ func strike(c: Vector2i) -> void:
 		Sfx.play("damage")
 		treasure_damaged.emit(t)
 
+	if lucky > 0:
+		lucky_coins.emit(lucky, (Vector2(c) + Vector2(0.5, 0.5)) * CELL)
+
 	for t in treasures:
 		if t["found"]:
 			continue
 		var exposed := true
+		var any_open := false
 		for cy in range(t["y"], t["y"] + t["h"]):
 			for cx in range(t["x"], t["x"] + t["w"]):
 				if thickness[cy][cx] > 0:
 					exposed = false
+				else:
+					any_open = true
+		if any_open and not t.get("glimpsed", false):
+			t["glimpsed"] = true
+			treasure_glimpsed.emit(t)
 		if exposed:
 			t["found"] = true
-			Sfx.play("found")
+			_celebrate(t)
 			treasure_found.emit(t)
 
 	# Steady hands builds with clean pick work and breaks on any mishap.
@@ -427,6 +447,27 @@ func _scan(c: Vector2i) -> void:
 	queue_redraw()
 
 
+## Sparkles, a ring and a white flash when a treasure comes free.
+func _celebrate(t: Dictionary) -> void:
+	var r := Game.rarity_of(t)
+	var col := Game.rarity_color(r)
+	var rect := Rect2(Vector2(t["x"], t["y"]) * CELL, Vector2(t["w"], t["h"]) * CELL)
+	var center := rect.get_center()
+	t["flash"] = 1.0
+	_rings.append({"pos": center, "radius": maxf(rect.size.x, rect.size.y) * 0.4, "life": 0.6, "col": col})
+	for i in 10 + r * 6:
+		var dir := Vector2.from_angle(randf() * TAU)
+		_particles.append({
+			"pos": center + dir * randf_range(2.0, 8.0),
+			"vel": dir * randf_range(40.0, 90.0 + r * 20.0),
+			"life": randf_range(0.4, 0.8),
+			"col": col.lightened(randf() * 0.4),
+			"grav": 60.0,
+			"size": 2.0 + randf() * 1.5,
+		})
+	_shake = maxf(_shake, 1.5 + r)
+
+
 func _burst(cell: Vector2i, layer: int) -> void:
 	var colors := [Color(0.78, 0.62, 0.42), Color(0.45, 0.32, 0.22), Color(0.5, 0.5, 0.52)]
 	var center := (Vector2(cell) + Vector2(0.5, 0.5)) * CELL
@@ -455,7 +496,18 @@ func _gas_cloud(cell: Vector2i) -> void:
 # ---------------------------------------------------------------- drawing
 
 func _process(delta: float) -> void:
-	var animating := _shake > 0.0 or _flash > 0.0 or not _particles.is_empty()
+	_time += delta
+	var animating := _shake > 0.0 or _flash > 0.0 or not _particles.is_empty() or not _rings.is_empty()
+	for t in treasures:
+		if t.get("flash", 0.0) > 0.0:
+			t["flash"] = maxf(float(t["flash"]) - delta * 2.5, 0.0)
+			animating = true
+		elif t.get("glimpsed", false) and not t["found"]:
+			animating = true  # pulsing rarity glow
+	for ring in _rings:
+		ring["life"] -= delta
+		ring["radius"] += delta * 70.0
+	_rings = _rings.filter(func(ring): return ring["life"] > 0.0)
 	_shake = maxf(_shake - delta * 14.0, 0.0)
 	_flash = maxf(_flash - delta, 0.0)
 	for p in _particles:
@@ -528,6 +580,23 @@ func _draw() -> void:
 				else:
 					draw_circle(r.get_center(), 1.0, Color(0, 0, 0, 0.45))
 
+	# Rarity glow on the uncovered parts of buried treasure, and flashes.
+	var pulse := 0.5 + 0.5 * sin(_time * 5.0)
+	for t in treasures:
+		var trect := Rect2(Vector2(t["x"], t["y"]) * CELL, Vector2(t["w"], t["h"]) * CELL)
+		if t.get("glimpsed", false) and not t["found"]:
+			var gcol := Game.rarity_color(Game.rarity_of(t))
+			for cy in range(t["y"], t["y"] + t["h"]):
+				for cx in range(t["x"], t["x"] + t["w"]):
+					if thickness[cy][cx] == 0:
+						var cr := Rect2(Vector2(cx, cy) * CELL, Vector2(CELL, CELL))
+						draw_rect(cr, Color(gcol, 0.12 + 0.12 * pulse))
+						draw_rect(cr.grow(-1.0), Color(gcol, 0.55 + 0.35 * pulse), false, 1.0)
+		if t.get("flash", 0.0) > 0.0:
+			draw_rect(trect, Color(1, 1, 1, float(t["flash"]) * 0.75))
+	for ring in _rings:
+		draw_arc(ring["pos"], ring["radius"], 0.0, TAU, 32, Color(ring["col"], clampf(ring["life"] / 0.6, 0.0, 1.0)), 2.0)
+
 	# Stress cracks.
 	var shown := int((1.0 - stability / stability_max) * _cracks.size())
 	for i in mini(shown, _cracks.size()):
@@ -558,5 +627,5 @@ func _draw() -> void:
 	if has_collapsed:
 		draw_rect(wall_rect, Color(0.05, 0.03, 0.02, 0.7))
 		draw_string(get_theme_default_font(), Vector2(0, wall_rect.size.y * 0.5 + 6), "COLLAPSED",
-			HORIZONTAL_ALIGNMENT_CENTER, wall_rect.size.x, 24, Color(1, 0.5, 0.4))
+			HORIZONTAL_ALIGNMENT_CENTER, wall_rect.size.x, 16, Color(1, 0.5, 0.4))
 	draw_rect(wall_rect, Color(0, 0, 0, 0.8), false, 2.0)

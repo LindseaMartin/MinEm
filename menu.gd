@@ -23,16 +23,16 @@ func _ready() -> void:
 	center.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	center.grow_vertical = Control.GROW_DIRECTION_BOTH
 	center.alignment = BoxContainer.ALIGNMENT_CENTER
-	center.add_theme_constant_override("separation", 4)
+	center.add_theme_constant_override("separation", 12)
 	add_child(center)
 
 	var title := Label.new()
 	title.text = "MinEm"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 32)
+	title.add_theme_font_size_override("font_size", 64)
 	title.add_theme_color_override("font_color", Color(0.98, 0.85, 0.45))
 	title.add_theme_color_override("font_outline_color", Color(0.15, 0.08, 0.05))
-	title.add_theme_constant_override("outline_size", 6)
+	title.add_theme_constant_override("outline_size", 10)
 	center.add_child(title)
 
 	var tagline := Label.new()
@@ -44,18 +44,18 @@ func _ready() -> void:
 	# A row of treasures you could find.
 	var gems := HBoxContainer.new()
 	gems.alignment = BoxContainer.ALIGNMENT_CENTER
-	gems.add_theme_constant_override("separation", 6)
+	gems.add_theme_constant_override("separation", 14)
 	for id in ["gold", "emerald", "raptor", "ruby", "diamond"]:
 		var icon = IconScript.new()
 		icon.treasure_id = id
-		icon.custom_minimum_size = Vector2(26, 20)
+		icon.custom_minimum_size = Vector2(56, 44)
 		gems.add_child(icon)
 	center.add_child(gems)
 
 	var buttons := VBoxContainer.new()
-	buttons.custom_minimum_size = Vector2(140, 0)
+	buttons.custom_minimum_size = Vector2(300, 0)
 	buttons.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	buttons.add_theme_constant_override("separation", 3)
+	buttons.add_theme_constant_override("separation", 8)
 	center.add_child(buttons)
 
 	if Game.has_save():
@@ -86,7 +86,7 @@ func _ready() -> void:
 	help.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	help.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	help.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	help.offset_bottom = -6
+	help.offset_bottom = -16
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	help.add_theme_color_override("font_color", Color(0.65, 0.6, 0.6))
 	add_child(help)

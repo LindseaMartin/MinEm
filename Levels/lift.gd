@@ -31,5 +31,5 @@ func _draw() -> void:
 		draw_line(Vector2(x, -7 + y), Vector2(x, 7 + y), iron.darkened(0.3), 1.0)
 	if not working:
 		draw_line(Vector2(-7, -8), Vector2(7, 8), Color(0.8, 0.2, 0.15), 1.5)
-	draw_string(ThemeDB.fallback_font, Vector2(-12, -19), "LIFT", HORIZONTAL_ALIGNMENT_CENTER, 24, 6,
+	draw_string(ThemeDB.fallback_font, Vector2(-12, -19), "LIFT", HORIZONTAL_ALIGNMENT_CENTER, 24, 5,
 		Color(0.9, 0.85, 0.6) if working else Color(0.6, 0.5, 0.5))

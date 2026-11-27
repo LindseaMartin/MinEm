@@ -101,6 +101,10 @@ func _ready() -> void:
 	ui_layer.add_child(hud)
 
 	# The mine is dark: only the lantern and a few other lights show the way.
+	# The UI runs at 960x540; zoom the camera so the pixel-art world keeps
+	# its chunky 4x look.
+	$Camera2D.zoom = Vector2(2, 2)
+
 	var darkness := CanvasModulate.new()
 	darkness.color = DARKNESS[depth]
 	add_child(darkness)
@@ -770,8 +774,6 @@ func _on_dig_finished(found: Array, dig, spot) -> void:
 	spot.queue_free()
 	var pages: Array = []
 	var heart_reward := -1
-	if found.is_empty():
-		hud.toast("You leave empty-handed.")
 	for item in found:
 		if item["id"] == "page":
 			pages.append(Game.add_page())
@@ -780,9 +782,8 @@ func _on_dig_finished(found: Array, dig, spot) -> void:
 		else:
 			var bonus: int = Game.add_to_bag(item["id"], item["cond"], item.get("shine", false))
 			Game.note_find(item)
-			hud.toast("+ " + Game.item_label(item))
 			if bonus > 0:
-				hud.toast("New discovery! Bonus $%d" % bonus, Color(1.0, 0.9, 0.4))
+				hud.toast("New discovery: %s! Bonus $%d" % [Game.TREASURES[item["id"]]["name"], bonus], Color(1.0, 0.9, 0.4))
 	if clear_bonus > 0:
 		Game.money += clear_bonus
 		Game.changed.emit()
